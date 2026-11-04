@@ -10,7 +10,10 @@ All features are causal (use only the current and past steps).
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
+import pandas as pd
 from numpy.typing import NDArray
 
 
@@ -50,3 +53,79 @@ def pooled_embedding(frame: NDArray[np.uint8], grid: int = 4) -> NDArray[np.floa
     ce = np.linspace(0, frame.shape[1], grid + 1).round().astype(int)
     return np.array([f[re[i]:re[i + 1], ce[j]:ce[j + 1]].mean()
                      for i in range(grid) for j in range(grid)])
+
+
+# ---------------------------------------------------------------------------------------------
+# Per-bin feature table for the survival head (SPEC section 9)
+# ---------------------------------------------------------------------------------------------
+
+
+
+@dataclass(frozen=True)
+class FeatureParams:
+    bin_width_s: float            # = policy period (configs/whenhead.yaml bin_width_s)
+    coupling_threshold: float     # uint8 level (configs/whenhead.yaml coupling_threshold)
+    confidence_impl: str = "proxy"   # "karamalis" | "proxy"
+    force_window_s: float = 1.0
+
+
+ROI_DILATE_PX = 2
+
+
+def vessel_roi(frame: NDArray[np.uint8]) -> NDArray[np.bool_]:
+    """Vessel ROI: the segmented lumen dilated by ``ROI_DILATE_PX`` so that the wall and the
+    surrounding tissue are included (the anechoic lumen alone carries no signal); the whole
+    frame if no vessel is found."""
+    from scipy import ndimage
+
+    from usintent.metrics.vessel import segment_vessel
+
+    v = segment_vessel(frame)
+    if not v.in_view:
+        return np.ones(frame.shape, bool)
+    return np.asarray(ndimage.binary_dilation(v.mask, iterations=ROI_DILATE_PX))
+
+
+def kappa(frame: NDArray[np.uint8], impl: str, roi: NDArray[np.bool_] | None = None) -> float:
+    """Mean confidence in the vessel ROI (``roi`` given, or segmented from this frame)."""
+    from usintent.whenhead.confidence import karamalis_confidence, proxy_confidence, roi_mean
+
+    conf = karamalis_confidence(frame) if impl == "karamalis" else proxy_confidence(frame)
+    return roi_mean(conf, vessel_roi(frame) if roi is None else roi)
+
+
+def hold_bins(episodes: list[object], p: FeatureParams) -> pd.DataFrame:
+    """One row per (hold, bin k): features at the bin start (causal) and the survival target.
+
+    Columns: hold_key, session_id, k, e (s), kappa, s, f, event (1 only in the bin that contains
+    the key press), censored_hold, exit_type, D (NaN if censored), start_step.
+    The vessel ROI is segmented once, on the hold's first frame (the probe is still).
+    Holds come from the logs (cued/synthetic); the hold is observed until its key press or until
+    the episode ends (right-censored, no event term).
+    """
+    rows = []
+    for ep in episodes:
+        fvar = force_variance(ep.wrench[:, 2], ep.time, p.force_window_s)  # type: ignore[attr-defined]
+        stride = max(1, round(p.bin_width_s * ep.fps))  # type: ignore[attr-defined]
+        for _, h in ep.holds.iterrows():  # type: ignore[attr-defined]
+            steps = np.flatnonzero(ep.hold_id == h["hold_id"])  # type: ignore[attr-defined]
+            if not len(steps):
+                continue
+            a = int(steps[0])
+            censored = bool(h["censored"]) or not np.isfinite(h["key_time"])
+            d = np.nan if censored else float(h["key_time"] - h["start_time"])
+            n_obs = len(steps)
+            roi = vessel_roi(ep.bmode[a])  # type: ignore[attr-defined]  # hold-start frame: causal
+            for k, s in enumerate(range(a, a + n_obs, stride)):
+                e = float(ep.time[s] - h["start_time"])  # type: ignore[attr-defined]
+                event = (not censored) and e <= d < e + p.bin_width_s
+                frame = ep.bmode[s]  # type: ignore[attr-defined]
+                rows.append({"hold_key": f"{ep.episode_index}/{h['hold_id']}",  # type: ignore[attr-defined]
+                             "session_id": ep.session_id, "k": k, "e": e,  # type: ignore[attr-defined]
+                             "kappa": kappa(frame, p.confidence_impl, roi),
+                             "s": coupling_indicator(frame, p.coupling_threshold),
+                             "f": float(fvar[s]), "event": int(event), "censored_hold": censored,
+                             "exit_type": h["exit_type"], "D": d, "start_step": s})
+                if event:
+                    break
+    return pd.DataFrame(rows)
