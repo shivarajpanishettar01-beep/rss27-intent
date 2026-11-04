@@ -24,10 +24,10 @@ REQUIRED_FILES = [
     "docs/SPEC.md", "docs/INTERFACES.md", "docs/BUILD_PLAN.md", "docs/SAFETY.md",
     "docs/RIG_FACTS.md", "docs/LAYOUT.md", "reference/rss_predictions.py",
     "configs/rig.yaml", "configs/safety.yaml", "configs/data.yaml", "configs/protocol.yaml",
-    "configs/metrics.yaml", "configs/whenhead.yaml",
+    "configs/metrics.yaml", "configs/whenhead.yaml", "configs/control.yaml",
 ]
 SUBPACKAGES = ["theory", "sim", "data", "metrics", "baselines", "leakage", "intervene",
-               "whenhead", "stats", "policies", "protocol"]
+               "whenhead", "stats", "policies", "protocol", "control"]
 ROS_PACKAGES = ["us_intent_msgs", "us_intent_scheduler", "us_intent_teleop", "us_intent_recorder",
                 "us_intent_policy_server", "us_intent_control"]
 ARMS = ["A1", "A2", "A3", "A5", "A6", "A7", "DP-1", "DP-5"]

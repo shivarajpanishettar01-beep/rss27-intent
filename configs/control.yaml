@@ -1,0 +1,8 @@
+# Controller parameters (M9). Rig facts: all null until measured/tuned on mock hardware + URSim.
+force_setpoint_n: null        # contact force set-point for HOLD/SWEEP (N)
+recontact_setpoint_n: null    # set-point while RECONTACT (N)
+admittance_gain_mps_per_n: null   # normal-axis velocity per newton of force error
+position_gain_per_s: null     # tangential tracking gain (1/s)
+lift_speed_mps: null          # retract speed along -tool z for LIFT
+cmd_topic: null               # controller input topic of the UR driver (read the driver docs)
+cmd_type: null                # its message type

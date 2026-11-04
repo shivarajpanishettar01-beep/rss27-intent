@@ -6,3 +6,12 @@ max_normal_displacement_m: null
 workspace_box_base_m: null    # [xmin, xmax, ymin, ymax, zmin, zmax]
 max_input_age_s: null
 watchdog_period_s: null
+# Sanity ranges set by the human: [min, max] for each limit above (SAFETY.md principle 3).
+# Motion code refuses to start if a limit is null, a range is null, or a limit is outside its range.
+sanity:
+  max_contact_force_n: null
+  max_tcp_speed_mps: null
+  max_tcp_accel_mps2: null
+  max_normal_displacement_m: null
+  max_input_age_s: null
+  watchdog_period_s: null

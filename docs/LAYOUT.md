@@ -12,7 +12,7 @@ rss27-intent/
 ├── prompts/                        paste-ready prompts per milestone
 ├── reference/rss_predictions.py    paper numbers (read-only)
 ├── configs/                        all YAML; unknown rig facts are null
-│   ├── rig.yaml  safety.yaml  data.yaml  protocol.yaml  metrics.yaml  whenhead.yaml
+│   ├── rig.yaml  safety.yaml  data.yaml  protocol.yaml  metrics.yaml  whenhead.yaml  control.yaml
 │   └── arms/  A1 A2 A3 A5 A6 A7 DP-1 DP-5 (.yaml)
 ├── usintent/                       the only Python package (pip install -e .)
 │   ├── paths.py                    ALL filesystem paths come from here
@@ -29,6 +29,7 @@ rss27-intent/
 │   ├── whenhead/   features confidence model commit           M7
 │   ├── stats/      tests
 │   ├── protocol/   scheduler teleop session recorder (logic for the M5 ROS nodes)   M5
+│   ├── control/    safety filter fault controller (logic for us_intent_control, SAFETY.md)   M9
 │   └── policies/   base (intent gating, implemented)  evaluate (open-loop harness, M3/M8)  server (M8)
 │                   gr00t_adapter  dp_adapter   M6
 ├── ros2_ws/src/                    ROS 2 packages (colcon build from ros2_ws/)
