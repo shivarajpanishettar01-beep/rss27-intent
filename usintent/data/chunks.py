@@ -10,6 +10,7 @@ Conventions (docs/INTERFACES.md, usintent.data.loaders):
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -196,7 +197,8 @@ class ChunkSampler:
     def chunk6(self, episode_index: int, start: int) -> NDArray[np.float64]:
         """(n, 6) composed displacement for one chunk, built from dataset actions."""
         ep = self._eps[episode_index]
-        return chunks_from_poses(self._poses[episode_index], np.array([start]), self.n_steps(ep))[0]
+        out = chunks_from_poses(self._poses[episode_index], np.array([start]), self.n_steps(ep))
+        return np.asarray(out[0], dtype=np.float64)
 
     def chunks6(self, rows: pd.DataFrame) -> NDArray[np.float64]:
         """Stack of (len(rows), n, 6) chunks for index rows (any order)."""
@@ -210,7 +212,7 @@ class ChunkSampler:
         pos = {k: i for i, k in enumerate(order)}
         return stacked[[pos[k] for k in rows.index]]
 
-    def history(self, episode_index: int, start: int) -> dict[str, NDArray[np.float64]]:
+    def history(self, episode_index: int, start: int) -> dict[str, NDArray[Any]]:
         """Observation history of ``history_k`` steps ending at ``start`` (clamped at 0).
 
         Never contains the scheduler mode: intent reaches a policy only through the explicit
@@ -218,7 +220,7 @@ class ChunkSampler:
         """
         ep = self._eps[episode_index]
         idx = np.clip(np.arange(start - self.history_k + 1, start + 1), 0, None)
-        out: dict[str, NDArray[np.float64]] = {
+        out: dict[str, NDArray[Any]] = {
             "state": ep.state[idx], "wrench": ep.wrench[idx], "time": ep.time[idx],
             "dt": np.array([ep.dt]),
         }

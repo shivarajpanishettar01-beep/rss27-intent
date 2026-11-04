@@ -146,7 +146,7 @@ class _Speckle:
 
     def at(self, x: float) -> NDArray[np.float64]:
         f = self.scale * np.cos(self.omega * x + self.phase).sum(axis=1)
-        return f.reshape(self.shape)
+        return np.asarray(f.reshape(self.shape), dtype=np.float64)
 
 
 def render_bmode(cfg: HoldWorldConfig, x_elev: NDArray[np.float64], coupling: NDArray[np.float64],
@@ -216,7 +216,7 @@ def generate_episode(cfg: HoldWorldConfig, episode_index: int, rng: np.random.Ge
     t_end = holds[-1].key + cfg.tail_s
     if truncate_at_s is not None:
         t_end = min(t_end, truncate_at_s)
-    time = np.arange(0.0, t_end, dt)
+    time = np.arange(0.0, t_end, dt, dtype=np.float64)
     n = len(time)
     # --- trajectories
     x = np.zeros(n)

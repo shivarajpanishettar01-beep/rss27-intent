@@ -190,7 +190,7 @@ def _col(table: pd.DataFrame, name: str) -> NDArray[Any]:
     vals = table[name].to_numpy()
     if vals.dtype == object and len(vals) and isinstance(vals[0], (list, np.ndarray)):
         return np.stack([np.asarray(v) for v in vals])
-    return vals
+    return np.asarray(vals)
 
 
 def read_lerobot(root: Path, repo_id: str = "local/usintent") -> list[Episode]:

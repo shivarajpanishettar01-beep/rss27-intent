@@ -47,7 +47,7 @@ class IMMParams:
 def _models(p: IMMParams) -> list[tuple[NDArray[np.float64], NDArray[np.float64]]]:
     dt = p.dt
     eye3 = np.eye(3)
-    out = []
+    out: list[tuple[NDArray[np.float64], NDArray[np.float64]]] = []
     for active in ([], [0, 1], [2]):      # velocity components each mode keeps
         f = np.zeros((6, 6))
         f[:3, :3] = eye3

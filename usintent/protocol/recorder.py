@@ -159,7 +159,7 @@ def write_synthetic_bag(ep: Episode, path: Path, topics: BagTopics, t0_ns: int,
         merged += [(ns, 3, topic, "us_intent_msgs/msg/ModeEvent", msg) for ns, topic, msg in events]
         for ns, _, topic, typ, msg in sorted(merged, key=lambda x: (x[0], x[1])):
             w.write_message(topic, sch[typ], msg, log_time=ns)
-        w.finish()
+        w.finish()  # type: ignore[no-untyped-call]
     return path
 
 
@@ -201,7 +201,7 @@ def convert_bag(path: Path, topics: BagTopics, episode_index: int, day: str,
         raise ConversionError("B-mode must be sensor_msgs/msg/Image mono8")
     b_ns = np.array([_ns(m.header.stamp) for _, _, m, _ in imgs], dtype=np.int64)
     t0 = int(b_ns[0])
-    time = (b_ns - t0) * 1e-9
+    time = np.asarray((b_ns - t0) * 1e-9, dtype=np.float64)
     bmode = np.stack([np.frombuffer(m.data, np.uint8).reshape(m.height, m.width)
                       for _, _, m, _ in imgs])
     poses = msgs[topics.tcp_pose]
