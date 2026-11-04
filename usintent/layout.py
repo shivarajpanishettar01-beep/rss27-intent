@@ -27,7 +27,7 @@ REQUIRED_FILES = [
     "configs/metrics.yaml", "configs/whenhead.yaml",
 ]
 SUBPACKAGES = ["theory", "sim", "data", "metrics", "baselines", "leakage", "intervene",
-               "whenhead", "stats", "policies"]
+               "whenhead", "stats", "policies", "protocol"]
 ROS_PACKAGES = ["us_intent_msgs", "us_intent_scheduler", "us_intent_teleop", "us_intent_recorder",
                 "us_intent_policy_server", "us_intent_control"]
 ARMS = ["A1", "A2", "A3", "A5", "A6", "A7", "DP-1", "DP-5"]

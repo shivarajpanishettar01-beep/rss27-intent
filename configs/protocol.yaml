@@ -6,3 +6,4 @@ stations_per_episode: {min: null, max: null}
 sweep_speeds_mps: null       # three levels
 tilt_twist_range_deg: null
 seed_logging: true
+audio_cue_command: null     # shell command that plays the cue sound on the lab PC
