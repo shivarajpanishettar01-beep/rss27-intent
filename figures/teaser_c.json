@@ -1,0 +1,43 @@
+{
+  "values": {
+    "uniform": {
+      "median_rule": 2.000247761493476,
+      "median_rule_closed": 2.0,
+      "calibrated_imitator": 2.6646089230259737,
+      "calibrated_imitator_closed": 2.6666666666666665,
+      "memoryless_hedger": 4.745075581088507,
+      "memoryless_hedger_closed": 4.748901369626046,
+      "hedger_leaves_early": 0.6046385,
+      "hedger_leaves_early_closed": 0.6042582191978294,
+      "pibar_H": 0.16663735509662583,
+      "pibar_tau_0.2": 0.13330988407730113,
+      "pibar_tau_0.4": 0.09998241305797503
+    },
+    "shifted_exp": {
+      "median_rule": 2.771722258048112,
+      "median_rule_closed": 2.772588722239781,
+      "calibrated_imitator": 3.999785960625626,
+      "calibrated_imitator_closed": 4.0,
+      "memoryless_hedger": 5.156565087952559,
+      "memoryless_hedger_closed": 5.159025436131284,
+      "hedger_leaves_early": 0.570534,
+      "hedger_leaves_early_closed": 0.5700812136557264,
+      "pibar_H": 0.1666966459737437,
+      "pibar_tau_0.2": 0.13335731677899543,
+      "pibar_tau_0.4": 0.10001798758424577
+    }
+  },
+  "horizon_s": 1.0,
+  "provenance": {
+    "git_hash": "4073b575ee11f6554ee1295b04fe3d7dc4fa2f74",
+    "config_hash": "18174d5f92eaaad1",
+    "configs": [
+      "data",
+      "protocol"
+    ],
+    "data_source": "theory",
+    "created_utc": "2026-11-04T08:38:35+00:00",
+    "n_mc": 2000000,
+    "seed": 0
+  }
+}
