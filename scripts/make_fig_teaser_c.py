@@ -85,11 +85,12 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=FIGURES)
     args = ap.parse_args()
     horizon = float(load("data")["chunk_horizon_s"])
+    # stamp first: writing the (tracked) outputs would otherwise mark the checkout dirty
+    prov = stamp(["protocol", "data"], "theory", n_mc=2_000_000, seed=0)
     values = compute(horizon)
     args.out.mkdir(parents=True, exist_ok=True)
     plot(values, args.out)
-    payload = {"values": values, "horizon_s": horizon,
-               "provenance": stamp(["protocol", "data"], "theory", n_mc=2_000_000, seed=0)}
+    payload = {"values": values, "horizon_s": horizon, "provenance": prov}
     (args.out / "teaser_c.json").write_text(json.dumps(payload, indent=2))
     print(json.dumps(payload, indent=2))
 
