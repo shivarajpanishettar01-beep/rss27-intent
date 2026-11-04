@@ -142,3 +142,115 @@ def evaluate_open_loop(policy: Policy, ctx: EvalContext, rows: pd.DataFrame, thr
         out["ratio_to_cv"] = ol.ratio_to_cv(err_t, ol.chunk_error_trans(cv_chunks, gt),
                                             rows["phase"].to_numpy().astype(str))
     return out
+
+
+# ---------------------------------------------------------------------------------------------
+# Predictions file format (lab inference writes it; make_* scripts read it)
+#   parquet columns: episode_index (int), start (int, step of chunk start), m_hat (str),
+#                    chunk (list[float], n*5 row-major: x, y (m), rx, ry, rz (rad), tool frame)
+#   sidecar <path>.meta.json: {"model", "arm_id", "seed", "checkpoint", "n_steps", ...}
+# ---------------------------------------------------------------------------------------------
+
+
+def save_predictions(path: Any, rows: pd.DataFrame, chunks: NDArray[np.float64], m_hat: list[str],
+                     meta: dict[str, Any]) -> None:
+    import json
+    from pathlib import Path
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df = pd.DataFrame({"episode_index": rows["episode_index"].to_numpy(dtype=np.int64),
+                       "start": rows["start"].to_numpy(dtype=np.int64), "m_hat": m_hat,
+                       "chunk": [c.ravel().tolist() for c in chunks]})
+    df.to_parquet(path, index=False)
+    Path(str(path) + ".meta.json").write_text(json.dumps({**meta, "n_steps": int(chunks.shape[1])},
+                                                         indent=2))
+
+
+def load_predictions(path: Any) -> tuple[pd.DataFrame, NDArray[np.float64], dict[str, Any]]:
+    import json
+    from pathlib import Path
+
+    df = pd.read_parquet(path)
+    meta = json.loads(Path(str(path) + ".meta.json").read_text())
+    n = int(meta["n_steps"])
+    chunks = np.stack([np.asarray(c, dtype=np.float64).reshape(n, 5) for c in df["chunk"]])
+    return df.drop(columns=["chunk"]), chunks, meta
+
+
+def align_predictions(index: pd.DataFrame, pred: pd.DataFrame, chunks: NDArray[np.float64]
+                      ) -> tuple[pd.DataFrame, NDArray[np.float64]]:
+    """Rows of the sampler index that have predictions, with chunks in the same order.
+    Raises if a prediction refers to a chunk start that the sampler does not know."""
+    key = index.reset_index().set_index(["episode_index", "start"])
+    pk = list(zip(pred["episode_index"], pred["start"]))
+    missing = [k for k in pk if k not in key.index]
+    if missing:
+        raise KeyError(f"{len(missing)} predictions do not match dataset chunk starts, "
+                       f"e.g. {missing[:3]}")
+    rows = index.loc[key.loc[pk, "index"].to_numpy()]
+    return rows, chunks
+
+
+# ---------------------------------------------------------------------------------------------
+# Preliminary checks 1 and 2 (make_table_phase_ratio.py, make_fig_hedging.py)
+# ---------------------------------------------------------------------------------------------
+
+
+def phase_ratio_table(sampler: ChunkSampler, rows: pd.DataFrame, pred: NDArray[np.float64]
+                      ) -> pd.DataFrame:
+    """Prelim check 1: policy translation error / B2 error per phase, on the same chunks.
+    ``sampler`` must have history_k >= 2 for B2. Includes B2 error and the unstable flag."""
+    from usintent.baselines.b2_const_vel import ConstantVelocity
+
+    if sampler.history_k < 2:
+        raise ValueError("B2 needs history_k >= 2")
+    n = pred.shape[1]
+    ctx = EvalContext(sampler, None)
+    cv, _ = predict_chunks(ConstantVelocity(n), ctx, rows)
+    gt = policy_target(sampler.chunks6(rows))
+    err_p = ol.chunk_error_trans(pred, gt)
+    err_cv = ol.chunk_error_trans(cv, gt)
+    tab = ol.ratio_to_cv(err_p, err_cv, rows["phase"].to_numpy().astype(str))
+    no_tr = ~rows["in_transition"].to_numpy(dtype=bool)
+    tab2 = ol.ratio_to_cv(err_p[no_tr], err_cv[no_tr], rows["phase"].to_numpy().astype(str)[no_tr])
+    tab = tab.merge(tab2[["phase", "ratio"]].rename(columns={"ratio": "ratio_excl_transitions"}),
+                    on="phase", how="left")
+    return tab
+
+
+def hedging_summary(train: ChunkSampler, eval_rows: pd.DataFrame, pred: NDArray[np.float64],
+                    thr_m: float, tau_s: float, n_boot: int = 2000, seed: int = 0
+                    ) -> dict[str, Any]:
+    """Prelim check 2: measured departure-like rate on hold chunks vs the training-data
+    departure fraction and the threshold-corrected prediction pi-bar_tau (Empirical D of the
+    training holds). CI by cluster bootstrap over holds."""
+    from usintent.stats.tests import cluster_bootstrap
+    from usintent.theory import Empirical, pibar_tau
+
+    tr = train.index
+    tr_hold = tr[tr["phase"] == "hold"]
+    durations = []
+    for ep in train.episodes:
+        seg = train.segmentations[ep.episode_index]  # type: ignore[index]
+        for a, b in seg.holds:
+            if seg.source == "cued":
+                d = ep.holds.loc[ep.holds["hold_id"] == ep.hold_id[a], "D"]
+                if len(d) and np.isfinite(float(d.iloc[0])):
+                    durations.append(float(d.iloc[0]))
+            elif b < len(ep):
+                durations.append(float(ep.time[b] - ep.time[a]))
+    dist = Empirical(np.asarray(durations))
+    horizon = train.horizon_s
+    in_hold = (eval_rows["phase"] == "hold").to_numpy()
+    flags = ol.departure_like(pred, thr_m)[in_hold].astype(np.float64)
+    hk = (eval_rows["episode_index"].astype(str) + "/" + eval_rows["seg_hold"].astype(str))
+    ci = cluster_bootstrap(flags, hk.to_numpy()[in_hold], n_boot=n_boot, seed=seed)
+    return {
+        "train_departure_fraction": float(tr_hold["contains_departure"].mean()),
+        "pibar_train_holds": float(np.mean(np.minimum(horizon, dist.samples)) / dist.mean()),
+        "pibar_tau_pred": pibar_tau(dist, horizon, tau_s),
+        "measured_rate": ci["estimate"], "measured_lo": ci["lo"], "measured_hi": ci["hi"],
+        "n_eval_hold_chunks": int(in_hold.sum()), "n_train_holds": len(durations),
+        "thr_m": thr_m, "tau_s": tau_s, "horizon_s": horizon,
+    }

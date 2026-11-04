@@ -10,6 +10,7 @@ import hashlib
 import json
 import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from usintent.config import load
@@ -56,3 +57,19 @@ def stamp(config_names: list[str], data_source: str, **extra: Any) -> dict[str, 
         out["warning"] = "SYNTHETIC: test-oracle output, not an experimental result"
     out.update(extra)
     return out
+
+
+def output_dir(data_source: str, requested: Path | None, default: Path) -> Path:
+    """Where a make_* script may write. Synthetic outputs must go to an explicit directory
+    outside figures/ and results/ (they must never feed a paper figure)."""
+    from usintent.paths import FIGURES, RESULTS
+
+    if data_source == "synthetic":
+        if requested is None:
+            raise ValueError("synthetic runs need an explicit --out outside figures/ and results/")
+        req = Path(requested).resolve()
+        for forbidden in (FIGURES.resolve(), RESULTS.resolve()):
+            if req == forbidden or forbidden in req.parents:
+                raise ValueError(f"synthetic outputs may not be written under {forbidden}")
+        return req
+    return Path(requested) if requested is not None else default

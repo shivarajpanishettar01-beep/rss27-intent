@@ -232,3 +232,23 @@ class ChunkSampler:
         p = None if weights is None else weights / weights.sum()
         pick = rng.choice(len(self.index), size=n, replace=True, p=p)
         return self.index.iloc[pick]
+
+
+def build_sampler(episodes: list[Episode], source: str, data_cfg: dict[str, object],
+                  history_k: int = 1, seg_params: object | None = None) -> ChunkSampler:
+    """Chunk sampler with the segmentation appropriate to the data source.
+
+    ``cued`` / ``synthetic``: phases from logged modes and key times. ``openh``: threshold
+    segmentation with ``seg_params`` or, if None, configs/data.yaml (nulls refuse).
+    """
+    from usintent.data.segmentation import SegParams, params_from_config, segment_threshold
+
+    horizon = float(data_cfg["chunk_horizon_s"])  # type: ignore[arg-type]
+    w = float(data_cfg["segmentation"]["transition_window_s"])  # type: ignore[index]
+    if source in ("cued", "synthetic"):
+        return ChunkSampler(episodes, horizon, history_k, transition_window_s=w)
+    if source == "openh":
+        p = seg_params if isinstance(seg_params, SegParams) else params_from_config(data_cfg)
+        segs = {e.episode_index: segment_threshold(e, p) for e in episodes}
+        return ChunkSampler(episodes, horizon, history_k, segmentations=segs, transition_window_s=w)
+    raise ValueError(f"unknown source {source!r}")
