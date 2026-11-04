@@ -5,13 +5,14 @@ Golden values are tested in tests/test_theory.py against reference/rss_predictio
 from __future__ import annotations
 
 import numpy as np
+from numpy.typing import NDArray
 
 from usintent.theory.distributions import HoldDistribution
 
 _DEFAULT_N = 2_000_000
 
 
-def _draw(dist: HoldDistribution, n: int, seed: int) -> np.ndarray:
+def _draw(dist: HoldDistribution, n: int, seed: int) -> NDArray[np.float64]:
     return dist.sample(n, np.random.default_rng(seed))
 
 
