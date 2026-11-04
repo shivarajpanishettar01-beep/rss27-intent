@@ -35,6 +35,7 @@ def synthetic_chunks(tau_thr: float) -> pd.DataFrame:
     from dataclasses import replace
 
     from usintent.data.chunks import ChunkSampler, policy_target
+    from usintent.data.passthrough import passthrough_check
     from usintent.metrics.open_loop import departure_like
     from usintent.sim.holdworld import HoldWorldConfig, generate
     from usintent.theory import ShiftedExp
@@ -43,6 +44,7 @@ def synthetic_chunks(tau_thr: float) -> pd.DataFrame:
     base = HoldWorldConfig(render_images=False, speeds_mps=(0.02,))
     for name, dist, seed in (("uniform", base.hold_dist, 401), ("shifted_exp", ShiftedExp(2, 4), 402)):
         s = ChunkSampler(generate(replace(base, hold_dist=dist, distribution_name=name, seed=seed), 250), 1.0)
+        passthrough_check(s, max_chunks=2000)                 # scored chunks pass the decode path
         idx = s.index[s.index["phase"] == "hold"]
         flags = departure_like(policy_target(s.chunks6(idx)), tau_thr)
         rows.append(pd.DataFrame({"name": "oracle-synthetic", "e": idx["e"].to_numpy(),

@@ -38,7 +38,7 @@ def main() -> None:
             self.create_subscription(WrenchStamped, require(rig, "topics.wrench"), self.on_wrench, 10)
             if MODE_TOPIC in topics:
                 self.create_subscription(ModeEvent, MODE_TOPIC,
-                                         lambda m: self.server.set_scheduler_mode(m.mode), 10)
+                                         lambda m: self.server.set_intent_mode(m.mode), 10)
             self.pub_chunk = self.create_publisher(ActionChunk, "/policy/chunk", 10)
             self.pub_cmd = self.create_publisher(ModeEvent, "/policy/contact_cmd", 10)
             self.dt = 1.0 / rate

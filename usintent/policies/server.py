@@ -2,7 +2,7 @@
 
 Gating is structural: ``subscriptions(arm)`` lists the topics a server for that arm may
 subscribe to; the scheduler-mode topic appears only for intent-aware arms (A5, DP-5, B6), and
-``set_scheduler_mode`` raises for blind arms. The ROS node (us_intent_policy_server) uses only
+``set_intent_mode`` raises for blind arms. The ROS node (us_intent_policy_server) uses only
 these functions. Every output is appended to ``log`` (and to a JSONL file if given).
 """
 from __future__ import annotations
@@ -16,7 +16,8 @@ from numpy.typing import NDArray
 
 from usintent.policies.base import INTENT_AWARE_ARMS, Policy
 
-MODE_TOPIC = "/protocol/mode_cue"
+# Intent = operator key events (arrival -> HOLD, key press -> exit mode), not the scheduler cue.
+MODE_TOPIC = "/protocol/mode_key"
 
 
 class GatingError(PermissionError):
@@ -26,8 +27,11 @@ class GatingError(PermissionError):
 def subscriptions(arm_id: str, rig_topics: dict[str, str]) -> list[str]:
     """Topics a policy server for ``arm_id`` subscribes to (rig topic names from config)."""
     topics = [rig_topics["bmode"], rig_topics["tcp_pose"], rig_topics["wrench"], "/joint_states"]
-    if rig_topics.get("camera"):
-        topics.append(rig_topics["camera"])
+    cam = rig_topics["camera"]
+    if cam is None:
+        raise ValueError("rig.yaml topics.camera is null: set a topic or \"none\"")
+    if cam != "none":
+        topics.append(cam)
     if arm_id in INTENT_AWARE_ARMS:
         topics.append(MODE_TOPIC)
     return topics
@@ -40,7 +44,7 @@ class PolicyServer:
         self.log: list[dict[str, Any]] = []
         self.log_path = log_path
 
-    def set_scheduler_mode(self, mode: str) -> None:
+    def set_intent_mode(self, mode: str) -> None:
         if not self.policy.intent_aware:
             raise GatingError(f"arm {self.policy.arm_id} is intent-blind; scheduler mode refused")
         self.mode = mode

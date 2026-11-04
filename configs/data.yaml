@@ -5,7 +5,8 @@ segmentation:
   t_hold_min_s: null
   t_onset_s: null
   transition_window_s: 0.5
-  contact_force_n: null   # |Fz| contact threshold; leave null to use the motion proxy
+  contact_source: null    # "force" (|Fz| > contact_force_n) or "motion" (first detected hold)
+  contact_force_n: null   # |Fz| contact threshold; required when contact_source is "force"
 splits:
   by: [session_id, day]
   assignment_file: null    # path relative to configs/, created when data exists
@@ -20,3 +21,4 @@ openh:
   wrench_key: null        # or "none"
   session_key: null       # or "episode" if Open-H has no session metadata (needs human OK)
   day_key: null           # or "none"
+  phantom_id: null        # target of this Open-H subset, e.g. "openh-vascular"

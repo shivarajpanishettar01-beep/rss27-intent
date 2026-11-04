@@ -6,6 +6,8 @@ Question: beyond elapsed time e, do observations predict that the current hold e
 - Feature sets: E = [e]; E+ctx = e, station index, number of stations, time since episode start;
   E+ctx+obs = plus a frozen image embedding, wrench statistics and image-adequacy features.
 - Models: logistic regression and gradient boosting, session-grouped CV; log-loss and AUROC.
+- Remaining-time version (paper H3(a) wording): regress ``remaining_s`` (ridge and gradient
+  boosting); statistic MAE(E) - MAE(E+ctx+obs) (ridge), same permutation null.
 - Test statistic: log-loss(E) - log-loss(E+ctx+obs) (logistic regression). Null: obs features
   permuted among samples of the same e bin (breaking any obs-outcome link beyond e), n_perm
   times; p = (1 + #{T_perm >= T}) / (1 + n_perm).
@@ -217,3 +219,72 @@ class ResNet18Embedder:
         std = torch.tensor([0.229, 0.224, 0.225])[None, :, None, None]
         with torch.no_grad():
             return np.asarray(self.net((x - mean) / std)[0].numpy(), dtype=np.float64)
+
+
+# ---------------------------------------------------------------------------------------------
+# Remaining-time regression (H3(a): "predict the remaining hold time")
+# ---------------------------------------------------------------------------------------------
+
+
+def _regressor(kind: str, seed: int) -> Any:
+    from sklearn.ensemble import HistGradientBoostingRegressor
+    from sklearn.linear_model import Ridge
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    if kind == "ridge":
+        return make_pipeline(StandardScaler(), Ridge(alpha=1.0))
+    if kind == "gbm":
+        return HistGradientBoostingRegressor(max_iter=150, learning_rate=0.05, max_leaf_nodes=15,
+                                             random_state=seed)
+    raise ValueError(kind)
+
+
+def oof_remaining(x: NDArray[np.float64], y: NDArray[np.float64], groups: NDArray[np.str_],
+                  kind: str = "ridge", n_splits: int = 5, seed: int = 0) -> NDArray[np.float64]:
+    """Out-of-fold predicted remaining hold time (s), session-grouped folds."""
+    p = np.zeros(len(y))
+    for tr, te in _folds(groups, n_splits):
+        p[te] = _regressor(kind, seed).fit(x[tr], y[tr]).predict(x[te])
+    return p
+
+
+def evaluate_remaining(data: LeakageData, models: tuple[str, ...] = ("ridge", "gbm"),
+                       n_splits: int = 5, seed: int = 0) -> pd.DataFrame:
+    """CV mean absolute error (s) of the remaining hold time per model x feature set."""
+    rows = []
+    ok = np.isfinite(data.remaining_s)
+    for kind in models:
+        for fs in FEATURE_SETS:
+            p = oof_remaining(data.features(fs)[ok], data.remaining_s[ok], data.groups[ok], kind,
+                              n_splits, seed)
+            rows.append({"model": kind, "features": fs,
+                         "mae_s": float(np.mean(np.abs(p - data.remaining_s[ok]))),
+                         "n": int(ok.sum())})
+    return pd.DataFrame(rows)
+
+
+def permutation_test_remaining(data: LeakageData, n_perm: int = 1000, e_bin_s: float = 0.5,
+                               n_splits: int = 5, seed: int = 0) -> dict[str, Any]:
+    """Permutation test of the MAE reduction of E+ctx+obs over E (ridge), obs permuted within
+    e bins as in :func:`permutation_test`."""
+    rng = np.random.default_rng(seed)
+    ok = np.isfinite(data.remaining_s)
+    y, g, e = data.remaining_s[ok], data.groups[ok], data.e[ok]
+    ctx, obs = data.ctx[ok], data.obs[ok]
+
+    def mae(x: NDArray[np.float64]) -> float:
+        return float(np.mean(np.abs(oof_remaining(x, y, g, "ridge", n_splits, seed) - y)))
+
+    base = mae(e[:, None])
+    stat = base - mae(np.column_stack([e, ctx, obs]))
+    bins = np.floor(e / e_bin_s).astype(np.int64)
+    members = [np.flatnonzero(bins == b) for b in np.unique(bins)]
+    null = np.empty(n_perm)
+    for i in range(n_perm):
+        perm = np.arange(len(y))
+        for m in members:
+            perm[m] = rng.permutation(m)
+        null[i] = base - mae(np.column_stack([e, ctx, obs[perm]]))
+    return {"statistic_mae_gain_s": stat, "p_value": (1 + int(np.sum(null >= stat))) / (1 + n_perm),
+            "n_perm": n_perm, "mae_E_s": base, "null_q95": float(np.quantile(null, 0.95))}

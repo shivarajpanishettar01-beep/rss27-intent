@@ -38,14 +38,16 @@ class SegParams:
 
 def params_from_config(cfg: dict[str, Any]) -> SegParams:
     """Read SegParams from the loaded data config; nulls raise MissingRigFact."""
-    seg = cfg["segmentation"]
-    cf = seg.get("contact_force_n")
+    source = str(require(cfg, "segmentation.contact_source"))
+    if source not in ("force", "motion"):
+        raise ValueError('segmentation.contact_source must be "force" or "motion"')
+    cf = float(require(cfg, "segmentation.contact_force_n")) if source == "force" else None
     return SegParams(
         v_hold_mps=float(require(cfg, "segmentation.v_hold_mps")),
         t_hold_min_s=float(require(cfg, "segmentation.t_hold_min_s")),
         t_onset_s=float(require(cfg, "segmentation.t_onset_s")),
         transition_window_s=float(require(cfg, "segmentation.transition_window_s")),
-        contact_force_n=None if cf is None else float(cf),
+        contact_force_n=cf,
     )
 
 

@@ -68,6 +68,7 @@ def test_leakage_table_synthetic(tmp_path) -> None:
     res = json.loads((tmp_path / "leakage_synthetic.json").read_text())
     assert res["runs"]["synthetic_leak_off"]["permutation"]["p_value"] > 0.2
     assert res["runs"]["synthetic_leak_on"]["permutation"]["p_value"] < 0.02
+    assert res["runs"]["synthetic_leak_on"]["permutation_remaining"]["p_value"] < 0.02
     assert res["provenance"]["config_hash"]
 
 

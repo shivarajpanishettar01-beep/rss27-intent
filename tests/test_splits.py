@@ -4,6 +4,7 @@ import pytest
 
 from usintent.data.splits import (
     SplitLeakageError,
+    assert_disjoint,
     assign_splits,
     check_no_leakage,
     episode_split_table,
@@ -40,3 +41,11 @@ def test_episode_table_from_synthetic_sessions() -> None:
     t = episode_split_table(eps, a)
     assert t.groupby("session_id")["split"].nunique().max() == 1
     assert set(t["split"]) == {"train", "val", "test"}
+
+
+def test_assert_disjoint_train_test() -> None:
+    a = generate(HoldWorldConfig(render_images=False, n_stations=(2, 2), seed=1), 2)
+    b = generate(HoldWorldConfig(render_images=False, n_stations=(2, 2), seed=2), 2)
+    assert_disjoint(a, b)                                  # different seeds -> different sessions
+    with pytest.raises(SplitLeakageError, match="session"):
+        assert_disjoint(a, a[:1])

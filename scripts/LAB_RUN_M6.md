@@ -1,49 +1,55 @@
 # LAB_RUN_M6 — training runs (lab GPU)
 
-## Status of the two policy families
-- **LeRobot Diffusion Policy (DP-1, DP-5): ready.** `usintent/policies/dp_adapter.py` uses the
-  installed `lerobot==0.6.1` DiffusionPolicy; a 10-step dry run on synthetic data passes in CI.
-- **GR00T-H (A1, A2, A3, A5, A6): blocked.** The cloud session could not reach GitHub or
-  HuggingFace, and Isaac-GR00T is not on PyPI, so I could not read its fine-tuning entry point,
-  modality JSON or action head. Next session: clone Isaac-GR00T at the commit you used for the
-  existing checkpoint into the repo (or paste the relevant files). I will then write the adapter
-  and document where the A5 mode embedding enters the action head.
+Both policy families are implemented. GR00T-H: `usintent/policies/gr00t_adapter.py`, read from
+Isaac-GR00T commit c56f541 (reports/REVIEW_FIXES.md §7). DP: LeRobot 0.6.1.
 
 ## 0. Decisions needed first
-- `configs/arms/*.yaml: schedule.steps, batch_size, lr`: one shared schedule for every arm (SPEC 10).
-- Which arm carries the intervention (SPEC 8 says "a trained policy"; I suggest A1, or DP-1 while GR00T is blocked) and the targets: 0.5× and 2× the natural π̄ of the training set.
-- DP seeds: the configs say 3, SPEC 10 asks ≥ 5 for arms that test H2.
+- `configs/arms/*.yaml: schedule.steps, batch_size, lr` (one shared schedule) and, for A*,
+  `checkpoint` (the GR00T-H N1.7 base checkpoint id/path).
+- `rig.yaml topics.camera` ("none" if no probe camera); `data.yaml segmentation.v_hold_mps` (A6).
 
-## 1. Time one run to get the GPU-hour estimate
+## 1. Isaac-GR00T environment (once)
 ```bash
-pip install -e ".[dev,ml,lerobot,bags]"
-python scripts/run_train_arm.py --arm DP-1 --seed 0 --dry-run      # sanity, CPU ok, < 1 min
-# after filling the schedule, time 1 % of a real run:
-time python scripts/run_train_arm.py --arm DP-1 --seed 0 --train $USINTENT_DATA/cued/<train>
+git clone https://github.com/NVIDIA/Isaac-GR00T && cd Isaac-GR00T && git checkout c56f541
+# follow its README to create the uv environment (Python 3.12, torch 2.9, flash-attn)
+uv pip install -e <path-to-rss27-intent>       # usintent inside the GR00T env
+GR00T_ROOT=$PWD pytest <path-to-rss27-intent>/tests/test_gr00t_adapter.py -m lab   # config check
 ```
-GPU hours = (number of runs) × (steps) × (seconds per step) / 3600. I could not measure seconds
-per step (no GPU here), so I do not give a number.
+Also check that `python gr00t/experiment/launch_finetune.py --help` lists `--state-dropout-prob`.
 
-## 2. Number of runs (with the configs as they are)
-| block | arms | seeds | runs |
-|---|---|---|---|
-| GR00T-H observation arms (blocked) | A1 A2 A3 A5 A6 | 5 | 25 |
-| DP arms | DP-1 DP-5 | 3 | 6 |
-| intervention (one arm, 2 targets) | e.g. DP-1 | 5 | 10 |
-| **total** | | | **41** (16 runnable now: DP + DP intervention) |
+## 2. GR00T-H arms (A1, A2, A3, A5, A6; A7 = A5-type model + when-head)
+```bash
+for arm in A1 A2 A3 A5 A6; do for s in 0 1 2 3 4; do
+  python scripts/run_train_arm.py --arm $arm --seed $s --train $USINTENT_DATA/cued/<train> \
+      --gr00t-root <Isaac-GR00T> --launch
+done; done
+python scripts/run_train_arm.py --arm A5 --seed 0 --train ... --gr00t-root ... --language-mode --launch
+python scripts/run_train_arm.py --arm A5 --seed 1 --train ... --gr00t-root ... --language-mode --launch
+```
+Each run exports the GR00T LeRobot-v2 copy once (`results/gr00t/data/<arm>_<datahash>`), checks
+the GR00T passthrough (must print `max_err` < 1e-6), writes `usintent_spec.json` and `run.json`,
+and runs `scripts/gr00t_finetune_seeded.py` (GR00T's launch_finetune with `config.data.seed`).
+**First run: open one exported video and one parquet in GR00T's own loader** (their
+`gr00t/eval/open_loop_eval.py --dataset-path <export> --embodiment-tag NEW_EMBODIMENT ...`) to
+confirm the export loads.
 
-## 3. Commands (DP, runnable now)
+## 3. DP arms and the intervention (DP only)
 ```bash
 for s in 0 1 2; do
-  python scripts/run_train_arm.py --arm DP-1 --seed $s --train $USINTENT_DATA/cued/<train>
-  python scripts/run_train_arm.py --arm DP-5 --seed $s --train $USINTENT_DATA/cued/<train>
+  python scripts/run_train_arm.py --arm DP-1 --seed $s --train ...
+  python scripts/run_train_arm.py --arm DP-5 --seed $s --train ...
 done
-P=<natural pi-bar printed by run.json of a natural run>   # or compute: see reports/M6.md
-for s in 0 1 2 3 4; do
-  python scripts/run_train_arm.py --arm DP-1 --seed $s --train ... --target-departure-fraction $(python -c "print(0.5*$P)")
-  python scripts/run_train_arm.py --arm DP-1 --seed $s --train ... --target-departure-fraction $(python -c "print(2*$P)")
-done
+for s in 0 1 2 3 4; do for p in <0.5*pibar> <2*pibar>; do
+  python scripts/run_train_arm.py --arm DP-1 --seed $s --train ... --target-departure-fraction $p
+done; done
 ```
-Each run writes `results/train/<arm>[_p<target>]/seed<k>/{model.pt,run.json}` with the seed,
-git hash, config hash, data hash and (for intervention runs) the realised departure fraction of
-one epoch (must be within ±0.01 of the target). Paste the run.json files back.
+
+## 4. Run count and GPU hours
+| block | runs |
+|---|---|
+| GR00T A1 A2 A3 A5 A6 × 5 seeds | 25 |
+| GR00T A5 language variant × 2 seeds | 2 |
+| DP-1, DP-5 × 3 seeds | 6 |
+| DP-1 intervention, 2 targets × 5 seeds | 10 |
+| **total** | **43** |
+GPU hours = runs × steps × (s/step) / 3600; time 100 steps of one GR00T and one DP run first.

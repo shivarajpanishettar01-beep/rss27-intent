@@ -40,6 +40,16 @@ class ControlParams:
             "position_gain_per_s", "lift_speed_mps")))
 
 
+def control_period_s(control_cfg: dict[str, Any], limits: SafetyLimits) -> float:
+    """Control loop period from control.yaml rate_hz (null refuses); must be shorter than the
+    watchdog period, or every cycle would trip the watchdog."""
+    period = 1.0 / float(require(control_cfg, "rate_hz"))
+    if not period < limits.watchdog_period_s:
+        raise ValueError(f"control period {period:.4f} s must be < watchdog_period_s "
+                         f"{limits.watchdog_period_s} s")
+    return period
+
+
 def hybrid_command(p: ControlParams, m_hat: str, chunk: NDArray[np.float64], force_n: float,
                    dt: float) -> NDArray[np.float64]:
     """Tool-frame twist [vx, vy, vz, wx, wy, wz] (m/s, rad/s)."""

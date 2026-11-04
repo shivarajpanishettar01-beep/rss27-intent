@@ -17,7 +17,7 @@ from usintent.policies.server import MODE_TOPIC, GatingError, PolicyServer, subs
 from usintent.sim.holdworld import HoldWorldConfig, departure_tau, generate
 from usintent.theory import Uniform, hazard_closed
 
-RIG = {"bmode": "/b", "tcp_pose": "/p", "wrench": "/w", "camera": None}
+RIG = {"bmode": "/b", "tcp_pose": "/p", "wrench": "/w", "camera": "none"}
 H = {"state": np.zeros((2, 12)), "time": np.array([0.0, 0.1]), "dt": np.array([0.1])}
 
 
@@ -40,7 +40,7 @@ def test_blind_arms_never_receive_mode(arm) -> None:
     spy = Spy(arm, 5)
     srv = PolicyServer(spy)
     with pytest.raises(GatingError):
-        srv.set_scheduler_mode("HOLD")
+        srv.set_intent_mode("HOLD")
     srv.step(0.0, H)
     assert spy.seen == [None]
 
@@ -52,7 +52,7 @@ def test_aware_arms_receive_mode(arm, tmp_path) -> None:
     srv = PolicyServer(spy, log_path=tmp_path / "log.jsonl")
     with pytest.raises(RuntimeError):
         srv.step(0.0, H)
-    srv.set_scheduler_mode("SWEEP")
+    srv.set_intent_mode("SWEEP")
     srv.step(0.1, H)
     assert spy.seen == ["SWEEP"]
     rec = json.loads((tmp_path / "log.jsonl").read_text().splitlines()[0])
@@ -101,3 +101,18 @@ def test_rate_vs_e_synthetic_follows_theory(tmp_path) -> None:
     for x in rows:
         mid = (x["e_lo"] + x["e_hi"]) / 2
         assert x["rate"] == pytest.approx(hazard_closed(Uniform(2, 10), mid, 1.0 - tau), abs=0.05)
+
+
+def test_intent_is_operator_key_mode_not_cue() -> None:
+    """Aware arms receive contact_cmd (switches at the key press), never the earlier cue."""
+    eps = generate(HoldWorldConfig(render_images=False, seed=9, n_stations=(3, 3)), 1)
+    s = ChunkSampler(eps, 1.0)
+    ctx = EvalContext(s, 0.002)
+    ep = eps[0]
+    h = ep.holds.iloc[0]
+    between = np.flatnonzero((ep.time >= h["cue_time"]) & (ep.time < h["key_time"]))
+    assert len(between) > 0
+    k = int(between[0])
+    assert ep.mode[k] != "HOLD"                       # scheduler already cued the exit
+    assert ctx.intent_mode(0, k) == "HOLD"            # operator has not pressed the key yet
+    assert MODE_TOPIC == "/protocol/mode_key"

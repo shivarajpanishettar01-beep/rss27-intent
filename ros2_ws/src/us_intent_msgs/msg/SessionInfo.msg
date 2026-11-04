@@ -4,3 +4,4 @@ int64 seed
 string hold_distribution   # uniform | shifted_exp
 int32 block_id
 string operator_id
+string phantom_id         # vascular | neck_central_line | ... (analyses stratify by it)

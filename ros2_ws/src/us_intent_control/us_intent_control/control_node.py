@@ -23,7 +23,7 @@ def main() -> None:
     from us_intent_msgs.msg import ActionChunk, FilterEvent, ModeEvent
 
     from usintent.config import load, require
-    from usintent.control.controller import ControlLoop, ControlParams
+    from usintent.control.controller import ControlLoop, ControlParams, control_period_s
     from usintent.control.safety import preflight
 
     class ControlNode(Node):
@@ -37,7 +37,7 @@ def main() -> None:
                 raise SystemExit("only geometry_msgs/msg/TwistStamped commands are supported")
             rig = load("rig")
             self.loop = ControlLoop(ControlParams.from_config(ctl), limits)
-            self.dt = limits.watchdog_period_s / 2.0
+            self.dt = control_period_s(ctl, limits)
             self.pose, self.force, self.disp = None, 0.0, 0.0
             self.chunk, self.m_hat = np.zeros((1, 5)), "HOLD"
             self.pub_cmd = self.create_publisher(TwistStamped, require(ctl, "cmd_topic"), 1)

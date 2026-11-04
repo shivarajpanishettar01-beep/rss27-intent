@@ -139,7 +139,7 @@ def test_b6_forces_zero_on_hold(data) -> None:
     rows = s_te.index.iloc[::11]
     pred6, m6 = predict_chunks(b6, ctx, rows)
     pred2, _ = predict_chunks(ConstantVelocity(N), ctx, rows)
-    sched_hold = np.array([ctx.scheduler_mode(int(e), int(k)) == "HOLD"
+    sched_hold = np.array([ctx.intent_mode(int(e), int(k)) == "HOLD"
                            for e, k in zip(rows["episode_index"], rows["start"])])
     assert sched_hold.any() and (~sched_hold).any()
     assert np.all(pred6[sched_hold] == 0) and all(m == "HOLD" for m, h in zip(m6, sched_hold) if h)

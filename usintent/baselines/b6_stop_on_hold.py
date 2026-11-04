@@ -1,4 +1,7 @@
-"""B6 wrapper: zero output whenever scheduler mode is HOLD. SPEC section 6. M3.
+"""B6 wrapper: zero output whenever the protocol mode is HOLD. SPEC section 6. M3.
+
+The protocol mode reaching B6 is the operator key-event mode (HOLD from arrival to the key
+press); see usintent.policies.evaluate.EvalContext.intent_mode.
 
 B6 is intent-aware (policies/base.py INTENT_AWARE_ARMS): it receives the scheduler mode; the
 wrapped policy is always called WITHOUT the mode, so a blind inner policy stays blind.

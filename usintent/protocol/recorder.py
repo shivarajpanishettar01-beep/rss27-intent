@@ -18,6 +18,7 @@ Converter rules:
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -33,7 +34,7 @@ from usintent.data.loaders import HOLD_COLUMNS, Episode
 
 PROTOCOL_TOPICS = ("/protocol/mode_cue", "/protocol/mode_key", "/protocol/session",
                    "/policy/chunk", "/policy/contact_cmd", "/control/filter_event",
-                   "/control/fault")
+                   "/control/fault", "/teleop/motion_command", "/teleop/target_station")
 
 _SEP = "=" * 80 + "\n"
 _TIME = "MSG: builtin_interfaces/Time\nint32 sec\nuint32 nanosec\n"
@@ -53,13 +54,14 @@ MSGDEFS = {
         + _SEP + "MSG: geometry_msgs/Wrench\ngeometry_msgs/Vector3 force\n"
                  "geometry_msgs/Vector3 torque\n" + _SEP
         + "MSG: geometry_msgs/Vector3\nfloat64 x\nfloat64 y\nfloat64 z\n"),
+    "std_msgs/msg/String": "string data\n",
     # us_intent_msgs: identical to ros2_ws/src/us_intent_msgs/msg/*.msg
     "us_intent_msgs/msg/ModeEvent": ("builtin_interfaces/Time stamp\nstring mode\nstring source\n"
                                      "int32 station_index\nint32 hold_id\n"
                                      "float64 sampled_hold_s\n" + _SEP + _TIME),
     "us_intent_msgs/msg/SessionInfo": ("builtin_interfaces/Time stamp\nstring session_id\n"
                                        "int64 seed\nstring hold_distribution\nint32 block_id\n"
-                                       "string operator_id\n" + _SEP + _TIME),
+                                       "string operator_id\nstring phantom_id\n" + _SEP + _TIME),
 }
 
 
@@ -71,10 +73,16 @@ def record_topics(rig: dict[str, Any]) -> list[str]:
     """Every topic of docs/INTERFACES.md that the recorder must log (rig topics from config)."""
     topics = [require(rig, "topics.bmode"), require(rig, "topics.wrench"),
               require(rig, "topics.tcp_pose"), "/joint_states"]
-    cam = rig.get("topics", {}).get("camera")
-    if cam:
+    cam = camera_topic(rig)
+    if cam is not None:
         topics.append(cam)
     return [str(t) for t in topics] + list(PROTOCOL_TOPICS)
+
+
+def camera_topic(rig: dict[str, Any]) -> str | None:
+    """Probe-camera topic from rig.yaml, or None if it is explicitly "none" (null refuses)."""
+    cam = str(require(rig, "topics.camera"))
+    return None if cam == "none" else cam
 
 
 def record_command(rig: dict[str, Any], out_dir: Path) -> list[str]:
@@ -98,6 +106,7 @@ class BagTopics:
     bmode: str
     wrench: str
     tcp_pose: str
+    camera: str | None = None      # probe camera (sensor_msgs/msg/Image rgb8), None if absent
 
     @classmethod
     def from_rig(cls, rig: dict[str, Any]) -> BagTopics:
@@ -105,7 +114,7 @@ class BagTopics:
             raise ConversionError("only sensor_msgs/msg/Image (mono8) B-mode is supported; "
                                   "inspect micrus and extend the converter")
         return cls(require(rig, "topics.bmode"), require(rig, "topics.wrench"),
-                   require(rig, "topics.tcp_pose"))
+                   require(rig, "topics.tcp_pose"), camera_topic(rig))
 
 
 # ------------------------------------------------------------------------------- writer
@@ -122,6 +131,7 @@ def write_synthetic_bag(ep: Episode, path: Path, topics: BagTopics, t0_ns: int,
     stamps = t0_ns + np.round(ep.time * 1e9).astype(np.int64)
     quat = Rotation.from_rotvec(ep.state[:, 3:6]).as_quat()   # x, y, z, w
     events: list[tuple[int, str, dict[str, Any]]] = []
+    strings: list[tuple[int, str, dict[str, Any]]] = []
     for _, h in ep.holds.iterrows():
         def ev(t: float, mode: str, source: str, h: Any = h) -> dict[str, Any]:
             return {"stamp": _stamp(t0_ns + round(t * 1e9)), "mode": mode, "source": source,
@@ -136,6 +146,10 @@ def write_synthetic_bag(ep: Episode, path: Path, topics: BagTopics, t0_ns: int,
         if np.isfinite(h["key_time"]):
             events.append((t0_ns + round(h["key_time"] * 1e9), "/protocol/mode_key",
                            ev(h["key_time"], h["exit_type"], "operator_key")))
+            if np.isfinite(h.get("sweep_speed_mps", np.nan)):
+                strings.append((t0_ns + round(h["key_time"] * 1e9), "/teleop/motion_command",
+                                {"data": json.dumps({"hold_id": int(h["hold_id"]),
+                                                     "speed_mps": float(h["sweep_speed_mps"])})}))
     with open(path, "wb") as f:
         w = Writer(f)
         sch = {k: w.register_msgdef(k, v) for k, v in MSGDEFS.items()}
@@ -156,7 +170,14 @@ def write_synthetic_bag(ep: Episode, path: Path, topics: BagTopics, t0_ns: int,
             merged.append((ns, 2, topics.bmode, "sensor_msgs/msg/Image", {
                 "header": hdr, "height": rows, "width": cols, "encoding": "mono8",
                 "is_bigendian": 0, "step": cols, "data": ep.bmode[k].tobytes()}))
+            if ep.camera is not None and topics.camera is not None:
+                cr, ccol = ep.camera.shape[1:3]
+                merged.append((ns, 2, topics.camera, "sensor_msgs/msg/Image", {
+                    "header": {**hdr, "frame_id": "camera"}, "height": cr, "width": ccol,
+                    "encoding": "rgb8", "is_bigendian": 0, "step": 3 * ccol,
+                    "data": ep.camera[k].tobytes()}))
         merged += [(ns, 3, topic, "us_intent_msgs/msg/ModeEvent", msg) for ns, topic, msg in events]
+        merged += [(ns, 4, topic, "std_msgs/msg/String", msg) for ns, topic, msg in strings]
         for ns, _, topic, typ, msg in sorted(merged, key=lambda x: (x[0], x[1])):
             w.write_message(topic, sch[typ], msg, log_time=ns)
         w.finish()  # type: ignore[no-untyped-call]
@@ -187,6 +208,8 @@ def convert_bag(path: Path, topics: BagTopics, episode_index: int, day: str,
         if t not in msgs:
             raise ConversionError(f"topic {t} missing from {path}")
     for topic, lst in msgs.items():
+        if not (hasattr(lst[0][2], "header") or hasattr(lst[0][2], "stamp")):
+            continue                                    # unstamped (std_msgs/String): no clock
         hdr_ns = [(_ns(m.header.stamp) if hasattr(m, "header") else _ns(m.stamp), log)
                   for log, _, m, _ in lst]
         st = np.array([h for h, _ in hdr_ns], dtype=np.int64)
@@ -220,6 +243,20 @@ def convert_bag(path: Path, topics: BagTopics, episode_index: int, day: str,
     w_v = np.array([[m.wrench.force.x, m.wrench.force.y, m.wrench.force.z, m.wrench.torque.x,
                      m.wrench.torque.y, m.wrench.torque.z] for _, _, m, _ in wr])
     wrench = np.column_stack([np.interp(time, w_t, w_v[:, i]) for i in range(6)])
+    camera = None
+    if topics.camera is not None:
+        if topics.camera not in msgs:
+            raise ConversionError(f"camera topic {topics.camera} missing from {path}")
+        cams = msgs[topics.camera]
+        if any(m.encoding != "rgb8" for _, _, m, _ in cams):
+            raise ConversionError("probe camera must be rgb8")
+        c_t = np.array([_ns(m.header.stamp) for _, _, m, _ in cams], dtype=np.int64)
+        idx = np.searchsorted(c_t, b_ns, side="right") - 1      # latest frame at or before
+        if np.any(idx < 0):
+            raise ConversionError("B-mode frames before the first camera frame")
+        frames = [np.frombuffer(m.data, np.uint8).reshape(m.height, m.width, 3)
+                  for _, _, m, _ in cams]
+        camera = np.stack([frames[i] for i in idx])
     sess = msgs["/protocol/session"][0][2]
     holds, mode, cmd, st_idx, hold_id = _events_to_holds(msgs, t0, time, episode_index, sess)
     rate = fps if fps is not None else float(np.round(1.0 / np.median(np.diff(time))))
@@ -227,7 +264,8 @@ def convert_bag(path: Path, topics: BagTopics, episode_index: int, day: str,
         episode_index=episode_index, fps=rate, time=time, state=state,
         action=actions_from_poses(state[:, :6]), wrench=wrench, mode=mode, contact_cmd=cmd,
         station_index=st_idx, hold_id=hold_id, session_id=str(sess.session_id), day=day,
-        operator_id=str(sess.operator_id), holds=holds, bmode=bmode)
+        operator_id=str(sess.operator_id), phantom_id=str(sess.phantom_id), holds=holds,
+        bmode=bmode, camera=camera)
     ep.validate()
     return ep
 
@@ -239,6 +277,10 @@ def _events_to_holds(msgs: dict[str, list[tuple[int, int, Any, str]]], t0: int,
     keys = [m for _, _, m, _ in msgs.get("/protocol/mode_key", [])]
     cues = {int(m.hold_id): m for _, _, m, _ in msgs.get("/protocol/mode_cue", [])}
     arrivals = [m for m in keys if m.source == "arrival"]
+    speeds: dict[int, float] = {}
+    for _, _, m, _ in msgs.get("/teleop/motion_command", []):     # std_msgs/String JSON
+        cmd = json.loads(m.data)
+        speeds[int(cmd["hold_id"])] = float(cmd["speed_mps"])
     presses = {int(m.hold_id): m for m in keys if m.source == "operator_key"}
     n = len(time)
     mode = np.full(n, "RECONTACT", dtype="<U9")
@@ -275,6 +317,7 @@ def _events_to_holds(msgs: dict[str, list[tuple[int, int, Any, str]]], t0: int,
             "backtrack": False, "sampled_D": float(cue.sampled_hold_s) if cue is not None else np.nan,
             "distribution": str(sess.hold_distribution), "block_id": int(sess.block_id),
             "censored": not np.isfinite(key_t) or key_t > t_end,
+            "sweep_speed_mps": speeds.get(hid, np.nan),
         })
     holds = pd.DataFrame(rows, columns=HOLD_COLUMNS).sort_values("start_time").reset_index(drop=True)
     # a hold is "backtrack" when the operator leaves it towards a lower station index; unknown

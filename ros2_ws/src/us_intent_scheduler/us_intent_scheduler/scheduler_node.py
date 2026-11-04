@@ -1,7 +1,8 @@
 """Samples stations and hold durations, plays audio cues, publishes /protocol/mode_cue. SPEC 12, M5.
 
 Thin ROS 2 wrapper: all logic is in usintent.protocol.scheduler. Parameters:
-  session_id, seed, distribution (uniform | shifted_exp), block_id, operator_id, n_episodes,
+  session_id, seed, distribution (uniform | shifted_exp), block_id, operator_id, phantom_id,
+  n_episodes,
   episode_index, dry_run (bool: no audio; still prints the plan and waits for 'yes').
 Subscribes /protocol/mode_key (arrival events start a hold); publishes /protocol/mode_cue and the
 latched /protocol/session. Audio: configs/protocol.yaml ``audio_cue_command`` (null refuses
@@ -31,13 +32,14 @@ def main() -> None:
             super().__init__("us_intent_scheduler")
             p = {k: self.declare_parameter(k, v).value for k, v in {
                 "session_id": "", "seed": -1, "distribution": "", "block_id": 0,
-                "operator_id": "", "n_episodes": 1, "episode_index": 0, "dry_run": True}.items()}
-            if not p["session_id"] or p["seed"] < 0 or not p["distribution"]:
+                "operator_id": "", "phantom_id": "", "n_episodes": 1, "episode_index": 0, "dry_run": True}.items()}
+            if not p["session_id"] or p["seed"] < 0 or not p["distribution"] or not p["phantom_id"]:
                 raise SystemExit("session_id, seed and distribution parameters are required")
             proto = load("protocol")
             self.audio = None if p["dry_run"] else shlex.split(require(proto, "audio_cue_command"))
             plan = plan_session(proto, p["session_id"], int(p["seed"]), p["distribution"],
-                                int(p["block_id"]), p["operator_id"], int(p["n_episodes"]))
+                                int(p["block_id"]), p["operator_id"], p["phantom_id"],
+                                int(p["n_episodes"]))
             ep = plan.episodes[int(p["episode_index"])]
             confirm({**plan.info(), "episode": ep.episode_index, "dry_run": p["dry_run"],
                      "holds": [h.__dict__ for h in ep.holds]})

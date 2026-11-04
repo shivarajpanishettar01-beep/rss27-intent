@@ -31,9 +31,11 @@ def test_openh_mapping_on_a_lerobot_dataset(ds_root) -> None:
     eps, root = ds_root
     mapping = {"pose_key": "observation.state", "pos_slice": [0, 3], "rot_slice": [3, 6],
                "rot_format": "rotvec", "bmode_key": "observation.bmode",
-               "wrench_key": "observation.wrench", "session_key": "session_id", "day_key": "day"}
+               "wrench_key": "observation.wrench", "session_key": "session_id", "day_key": "day",
+               "phantom_id": "syn-openh"}
     got = load_openh(root, mapping, repo_id="local/usintent")
     assert len(got) == 2
     assert np.allclose(got[0].state[:, :6], eps[0].state[:, :6], atol=1e-6)
     assert np.array_equal(got[0].bmode, eps[0].bmode)
     assert got[0].session_id == eps[0].session_id and np.all(got[0].hold_id == -1)
+    assert got[0].phantom_id == "syn-openh"

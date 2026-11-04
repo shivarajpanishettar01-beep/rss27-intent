@@ -39,8 +39,12 @@ class EvalContext:
             h["e_proprio"] = self.e_proprio[episode_index][start:start + 1]
         return h
 
-    def scheduler_mode(self, episode_index: int, start: int) -> str:
-        return str(self._eps[episode_index].mode[start])
+    def intent_mode(self, episode_index: int, start: int) -> str:
+        """The intent signal for intent-aware arms: the operator's key-event mode at ``start``
+        (``action.contact_cmd``: HOLD from arrival until the key press, then the exit mode).
+        Decision (reports/REVIEW_FIXES.md): not the scheduler cue, which precedes the key press
+        by the reaction time, so an intent-aware arm's timing error is the system latency."""
+        return str(self._eps[episode_index].contact_cmd[start])
 
 
 def predict_chunks(policy: Policy, ctx: EvalContext, rows: pd.DataFrame
@@ -52,7 +56,7 @@ def predict_chunks(policy: Policy, ctx: EvalContext, rows: pd.DataFrame
     chunks, m_hat = [], []
     for ep_idx, start in zip(rows["episode_index"].to_numpy(), rows["start"].to_numpy()):
         h = ctx.history(int(ep_idx), int(start))
-        mode = ctx.scheduler_mode(int(ep_idx), int(start)) if policy.intent_aware else None
+        mode = ctx.intent_mode(int(ep_idx), int(start)) if policy.intent_aware else None
         c, m = policy.predict(h, mode)
         chunks.append(np.asarray(c, dtype=np.float64))
         m_hat.append(m)
@@ -71,6 +75,7 @@ def hold_timing(policy: Policy, ctx: EvalContext, thr_m: float, horizon_after_ke
     policies that depend on pose, force and e (B1-B4, B6) and an approximation for image policies
     (their true late behaviour is measured in closed loop, M10).
     """
+    passthrough_check(ctx.sampler, max_chunks=2000)       # CLAUDE.md rule 4, before scoring
     rows = []
     for ep in ctx.sampler.episodes:
         n = ctx.sampler.n_steps(ep)
@@ -81,15 +86,15 @@ def hold_timing(policy: Policy, ctx: EvalContext, thr_m: float, horizon_after_ke
             steps = steps[steps + n < len(ep)]
             t_first = np.nan
             for k in steps:
-                c, _ = _predict_at(policy, ctx, ep.episode_index, int(k), ep, 0.0)
-                if ol.max_displacement(c[None])[0] > thr_m:
+                c, m = _predict_at(policy, ctx, ep.episode_index, int(k), ep, 0.0)
+                if ol.departure_like(c[None], thr_m, [m])[0]:
                     t_first = float(ep.time[k] - h["start_time"])
                     break
             if np.isnan(t_first) and len(steps):
                 last = int(steps[-1])
                 for j in range(1, round(horizon_after_key_s * ep.fps) + 1):
-                    c, _ = _predict_at(policy, ctx, ep.episode_index, last, ep, j * ep.dt)
-                    if ol.max_displacement(c[None])[0] > thr_m:
+                    c, m = _predict_at(policy, ctx, ep.episode_index, last, ep, j * ep.dt)
+                    if ol.departure_like(c[None], thr_m, [m])[0]:
                         t_first = float(ep.time[last] + j * ep.dt - h["start_time"])
                         break
             rows.append({"episode_index": ep.episode_index, "hold_id": int(h["hold_id"]),
@@ -113,8 +118,9 @@ def _predict_at(policy: Policy, ctx: EvalContext, ep_idx: int, k: int, ep: Any, 
             hist["bmode"] = np.repeat(hist["bmode"][-1:], len(hist["bmode"]), axis=0)
         if "e_proprio" in hist:
             hist["e_proprio"] = hist["e_proprio"] + shift_s
-    # in the extension the scheduler mode stays what it was at the last recorded hold step
-    mode = str(ep.mode[k]) if policy.intent_aware else None
+    # intent = operator key-event mode; in the extension it stays what it was at the last
+    # recorded hold step (HOLD: the operator has not pressed the key yet)
+    mode = str(ep.contact_cmd[k]) if policy.intent_aware else None
     c, m = policy.predict(hist, mode)
     return np.asarray(c, dtype=np.float64), m
 
@@ -123,7 +129,7 @@ def evaluate_open_loop(policy: Policy, ctx: EvalContext, rows: pd.DataFrame, thr
                        cv_chunks: NDArray[np.float64] | None = None) -> dict[str, Any]:
     """Passthrough first (raises on failure), then the SPEC section 5 open-loop metrics."""
     pt = passthrough_check(ctx.sampler, max_chunks=5000)
-    pred, _ = predict_chunks(policy, ctx, rows)
+    pred, m_hat = predict_chunks(policy, ctx, rows)
     gt = policy_target(ctx.sampler.chunks6(rows))
     in_hold = (rows["phase"] == "hold").to_numpy()
     dep = rows["contains_departure"].to_numpy(dtype=bool)
@@ -134,8 +140,8 @@ def evaluate_open_loop(policy: Policy, ctx: EvalContext, rows: pd.DataFrame, thr
         "chunk_error_trans_m": float(err_t.mean()),
         "chunk_error_rot_rad": float(ol.chunk_error_rot(pred, gt).mean()),
         "hold_drift_m": ol.hold_drift(pred, in_hold, dep),
-        "departure_like_rate": ol.departure_like_rate(pred, in_hold, thr_m,
-                                                      rows["exit_type"].to_numpy().astype(str)),
+        "departure_like_rate": ol.departure_like_rate(
+            pred, in_hold, thr_m, rows["exit_type"].to_numpy().astype(str), m_hat=m_hat),
         "gt_departure_fraction": float(dep[in_hold].mean()) if in_hold.any() else float("nan"),
     }
     if cv_chunks is not None:
@@ -220,8 +226,8 @@ def phase_ratio_table(sampler: ChunkSampler, rows: pd.DataFrame, pred: NDArray[n
 
 
 def hedging_summary(train: ChunkSampler, eval_rows: pd.DataFrame, pred: NDArray[np.float64],
-                    thr_m: float, tau_s: float, n_boot: int = 2000, seed: int = 0
-                    ) -> dict[str, Any]:
+                    thr_m: float, tau_s: float, n_boot: int = 2000, seed: int = 0,
+                    m_hat: list[str] | None = None) -> dict[str, Any]:
     """Prelim check 2: measured departure-like rate on hold chunks vs the training-data
     departure fraction and the threshold-corrected prediction pi-bar_tau (Empirical D of the
     training holds). CI by cluster bootstrap over holds."""
@@ -243,7 +249,7 @@ def hedging_summary(train: ChunkSampler, eval_rows: pd.DataFrame, pred: NDArray[
     dist = Empirical(np.asarray(durations))
     horizon = train.horizon_s
     in_hold = (eval_rows["phase"] == "hold").to_numpy()
-    flags = ol.departure_like(pred, thr_m)[in_hold].astype(np.float64)
+    flags = ol.departure_like(pred, thr_m, m_hat)[in_hold].astype(np.float64)
     hk = (eval_rows["episode_index"].astype(str) + "/" + eval_rows["seg_hold"].astype(str))
     ci = cluster_bootstrap(flags, hk.to_numpy()[in_hold], n_boot=n_boot, seed=seed)
     return {
@@ -263,16 +269,25 @@ def hedging_summary(train: ChunkSampler, eval_rows: pd.DataFrame, pred: NDArray[
 
 def load_policy(arm_id: str, checkpoint: Any, deterministic_noise: bool = True,
                 integration_steps: int | None = None) -> Policy:
-    """Load a trained arm. DP: ``model.pt`` written by scripts/run_train_arm.py. GR00T: blocked."""
+    """Load a trained arm. DP: ``model.pt`` written by scripts/run_train_arm.py. GR00T: a
+    checkpoint directory under the run's output dir, next to ``usintent_spec.json``."""
+    import json
     from pathlib import Path
 
     from usintent.config import load
 
     arm = load(f"arms/{arm_id}")
-    if arm["family"] != "diffusion_policy":
-        from usintent.policies.gr00t_adapter import GR00TPolicy
+    if arm["family"] == "gr00t_h":
+        from usintent.policies.gr00t_adapter import Gr00tArmSpec, GR00TPolicy
 
-        return GR00TPolicy(arm_id, str(checkpoint))       # raises: blocked (no source)
+        ck = Path(checkpoint)
+        spec_file = next(p / "usintent_spec.json" for p in (ck, *ck.parents)
+                         if (p / "usintent_spec.json").is_file())
+        d = json.loads(spec_file.read_text())
+        spec = Gr00tArmSpec(d["arm_id"], d["n_steps"], tuple(d["video_delta"]), d["use_camera"],
+                            tuple((str(a), int(b)) for a, b in d["state_keys"]), d["language_mode"])
+        return GR00TPolicy(arm_id, spec, str(ck), deterministic_noise=deterministic_noise,
+                           integration_steps=integration_steps)
     import torch
 
     from usintent.policies.dp_adapter import DPArmSpec, DPPolicy, MinMax
@@ -295,7 +310,7 @@ def eval_rows(policy: Policy, ctx: EvalContext, rows: pd.DataFrame, thr_m: float
     gt = policy_target(ctx.sampler.chunks6(rows))
     out = rows[["episode_index", "start", "phase", "e", "exit_type", "contains_departure",
                 "in_transition", "session_id"]].copy()
-    out["departure_like"] = ol.departure_like(pred, thr_m)
+    out["departure_like"] = ol.departure_like(pred, thr_m, m_hat)
     out["err_trans_m"] = ol.chunk_error_trans(pred, gt)
     out["max_disp_m"] = ol.max_displacement(pred)
     out["m_hat"] = m_hat
@@ -340,3 +355,27 @@ def intervention_prediction(p: float, horizon_s: float, tau_s: float) -> float:
     if not 0 <= tau_s <= horizon_s:
         raise ValueError("need 0 <= tau <= H")
     return p * (horizon_s - tau_s) / horizon_s
+
+
+def instruction_swap_effect(predict: Any, rows: pd.DataFrame, base_instruction: str,
+                            swap_instructions: list[str], seeds: tuple[Any, Any]) -> dict[str, Any]:
+    """Language-delivery check (paper Sec. V, prelim check 3).
+
+    ``predict(seed_or_checkpoint, instruction, episode_index, start) -> (n, 5) chunk``.
+    Swap effect: mean L2 (over chunk steps, tangential) between predictions with the base and a
+    swapped instruction, same checkpoint. Seed noise: same instruction, two training seeds.
+    The instruction counts as uninformative unless the swap effect exceeds the seed noise.
+    """
+    a, b = seeds
+    swap, noise = [], []
+    for e, s in zip(rows["episode_index"], rows["start"]):
+        base = np.asarray(predict(a, base_instruction, int(e), int(s)), dtype=np.float64)
+        other = np.asarray(predict(b, base_instruction, int(e), int(s)), dtype=np.float64)
+        noise.append(float(np.linalg.norm(base[:, :2] - other[:, :2], axis=1).mean()))
+        for ins in swap_instructions:
+            sw = np.asarray(predict(a, ins, int(e), int(s)), dtype=np.float64)
+            swap.append(float(np.linalg.norm(base[:, :2] - sw[:, :2], axis=1).mean()))
+    effect, floor = float(np.mean(swap)), float(np.mean(noise))
+    return {"swap_effect_m": effect, "seed_noise_m": floor,
+            "ratio": effect / floor if floor > 0 else float("inf"),
+            "informative": bool(effect > floor), "n_chunks": len(rows)}

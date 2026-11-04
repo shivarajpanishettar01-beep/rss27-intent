@@ -97,12 +97,21 @@ def run_trial(policy: Policy, plan: EpisodePlan, cfg: TrialConfig, trial_id: str
     return pd.DataFrame(rows)
 
 
-def run_paired(policies: dict[str, Policy], plans: list[EpisodePlan], cfg: TrialConfig) -> pd.DataFrame:
-    """Every arm on the same trials (pairing across arms). Adds an ``arm`` column."""
+def run_paired(policies: dict[str, Policy], plans: list[EpisodePlan], cfg: TrialConfig,
+               reaction_s: list[NDArray[np.float64]] | None = None) -> pd.DataFrame:
+    """Every arm on the same trials (pairing across arms). Adds an ``arm`` column.
+
+    ``reaction_s`` (one array per plan, one value per hold): operator reaction time added to the
+    scheduler's sampled duration, D = sampled_D + R, the same D for every arm. On the rig, D comes
+    from the operator's key press in each closed-loop trial, as in training (paper Sec. III).
+    """
+    d_per_plan = [np.array([h.sampled_d_s for h in p.holds]) + (0.0 if reaction_s is None
+                                                                  else np.asarray(reaction_s[i]))
+                  for i, p in enumerate(plans)]
     out = []
     for name, pol in policies.items():
         for i, plan in enumerate(plans):
-            df = run_trial(pol, plan, cfg, f"trial{i}")
+            df = run_trial(pol, plan, cfg, f"trial{i}", hold_durations=d_per_plan[i])
             df.insert(0, "arm", name)
             out.append(df)
     return pd.concat(out, ignore_index=True)

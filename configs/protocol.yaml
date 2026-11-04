@@ -3,7 +3,10 @@ hold_distributions:
   shifted_exp: {shift: 2.0, scale: 4.0}
 block_design: per_session_block
 stations_per_episode: {min: null, max: null}
-sweep_speeds_mps: null       # three levels
-tilt_twist_range_deg: null
+sweep_speeds_mps: null       # three levels, e.g. [v1, v2, v3]
+preset_stations: null        # number of preset teleop waypoints along the vessel
+p_backtrack: null            # probability that an exit goes back to the previous station
+p_lift: null                 # probability that the cue asks for LIFT (lift-off + re-contact)
+tilt_twist_range_deg: null   # [max |tilt|, max |twist|] in degrees, fixed before collection
 seed_logging: true
 audio_cue_command: null     # shell command that plays the cue sound on the lab PC

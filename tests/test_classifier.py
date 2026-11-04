@@ -2,7 +2,13 @@
 import numpy as np
 import pytest
 
-from usintent.leakage.classifier import build_dataset, evaluate, permutation_test
+from usintent.leakage.classifier import (
+    build_dataset,
+    evaluate,
+    evaluate_remaining,
+    permutation_test,
+    permutation_test_remaining,
+)
 from usintent.sim.holdworld import HoldWorldConfig, generate
 from usintent.whenhead.features import coupling_indicator, force_variance, pooled_embedding
 
@@ -60,3 +66,12 @@ def test_feature_functions_known() -> None:
     assert v[0] == 0.0 and v[1] == 0.0 and v[2] == pytest.approx(1.0) and v[3] == 0.0
     emb = pooled_embedding(np.full((8, 8), 255, np.uint8), grid=2)
     assert np.allclose(emb, 1.0) and emb.shape == (4,)
+
+
+def test_remaining_time_regression(leak_off, leak_on) -> None:
+    off = permutation_test_remaining(leak_off, n_perm=100)
+    on = permutation_test_remaining(leak_on, n_perm=100)
+    assert off["p_value"] > 0.2 and on["p_value"] < 0.02
+    tab = evaluate_remaining(leak_on).set_index(["model", "features"])
+    # the synthetic leak exists only in the last 1.5 s of a hold, which bounds the MAE gain
+    assert tab.loc[("gbm", "E+ctx+obs"), "mae_s"] < tab.loc[("gbm", "E"), "mae_s"] - 0.1

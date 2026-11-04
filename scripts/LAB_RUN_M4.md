@@ -79,3 +79,16 @@ regression, gradient boosting) and a 1000-permutation p-value. Uses the pooled-i
 embedding unless you decide otherwise (see reports/M4.md). Runtime: ~10–60 min (1000 CV refits).
 
 Paste the JSON files back into the next session.
+
+## 5. Prelim check 3 — instruction swap on the existing GR00T-H checkpoint
+With your existing inference code, wrap it as `predict(ckpt, instruction, episode_index, start)
+-> (n, 5) chunk` and call `usintent.policies.evaluate.instruction_swap_effect(predict, rows,
+base_instruction, [other instructions], (ckpt_seed_a, ckpt_seed_b))`. If you have only one seed,
+the seed-noise term is missing: report the raw swap effect and say so. For our own arms use
+`scripts/run_language_check.py` (needs `--language-mode` runs, LAB_RUN_M6).
+
+## 6. Check 4 helpers (first cued episodes)
+```bash
+python scripts/run_measure_threshold_tau.py --dataset $USINTENT_DATA/cued/<pilot>   # thr, tau
+python scripts/make_table_leakage.py --source cued --dataset $USINTENT_DATA/cued/<pilot>
+```

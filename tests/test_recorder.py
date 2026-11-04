@@ -18,7 +18,7 @@ from usintent.sim.holdworld import HoldWorldConfig, generate
 T = BagTopics("/syn/bmode", "/syn/wrench", "/syn/tcp_pose")   # synthetic topic names
 T0 = 1_762_000_000_123_456_789
 SESSION = {"session_id": "syn-s0", "seed": 5, "hold_distribution": "uniform", "block_id": 0,
-           "operator_id": "syn-op0"}
+           "operator_id": "syn-op0", "phantom_id": "syn-vascular"}
 
 
 @pytest.fixture(scope="module")
@@ -91,7 +91,21 @@ def test_record_profile_needs_rig_topics() -> None:
     with pytest.raises(MissingRigFact):
         record_command(load("rig"), "out")
     rig = {"topics": {"bmode": "/b", "wrench": "/w", "tcp_pose": "/p", "camera": None}}
+    with pytest.raises(MissingRigFact):                    # camera must be a topic or "none"
+        record_command(rig, "out")
+    rig["topics"]["camera"] = "none"
     cmd = record_command(rig, "out")
     assert cmd[:5] == ["ros2", "bag", "record", "-s", "mcap"]
     assert {"/b", "/w", "/p", "/protocol/mode_cue", "/protocol/mode_key", "/protocol/session",
             "/joint_states"} <= set(cmd)
+
+
+def test_round_trip_with_camera_and_phantom(tmp_path) -> None:
+    ep = generate(HoldWorldConfig(image_shape=(16, 16), n_stations=(2, 2), render_camera=True,
+                                  phantom_id="syn-neck", seed=13), 1)[0]
+    topics = BagTopics("/syn/bmode", "/syn/wrench", "/syn/tcp_pose", camera="/syn/camera")
+    bag = write_synthetic_bag(ep, tmp_path / "c.mcap", topics, T0, {**SESSION, "phantom_id": "syn-neck"})
+    c = convert_bag(bag, topics, 0, "syn-d0")
+    assert np.array_equal(c.camera, ep.camera) and c.phantom_id == "syn-neck"
+    back = read_lerobot(write_lerobot([c], tmp_path / "ds"))[0]
+    assert np.array_equal(back.camera, ep.camera) and back.phantom_id == "syn-neck"

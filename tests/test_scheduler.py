@@ -3,22 +3,23 @@ import numpy as np
 import pytest
 from scipy import stats
 
+from tests.protocol_fixtures import syn_protocol
 from usintent.config import MissingRigFact, load
 from usintent.protocol.scheduler import CueClock, distribution_from_config, plan_session
 from usintent.protocol.session import NotConfirmed, confirm
 
-PROTO = {**load("protocol"), "stations_per_episode": {"min": 3, "max": 6}}   # test values only
+PROTO = syn_protocol()   # SYNTHETIC test values only
 
 
 def test_requires_protocol_values() -> None:
     with pytest.raises(MissingRigFact):
-        plan_session(load("protocol"), "s", 1, "uniform", 0, "op", 1)
+        plan_session(load("protocol"), "s", 1, "uniform", 0, "op", "v", 1)
 
 
 def test_reproducible_from_seed() -> None:
-    a = plan_session(PROTO, "s", 7, "uniform", 0, "op", 20)
-    b = plan_session(PROTO, "s", 7, "uniform", 0, "op", 20)
-    c = plan_session(PROTO, "s", 8, "uniform", 0, "op", 20)
+    a = plan_session(PROTO, "s", 7, "uniform", 0, "op", "syn-vascular", 20)
+    b = plan_session(PROTO, "s", 7, "uniform", 0, "op", "syn-vascular", 20)
+    c = plan_session(PROTO, "s", 8, "uniform", 0, "op", "syn-vascular", 20)
     da = [h.sampled_d_s for e in a.episodes for h in e.holds]
     assert da == [h.sampled_d_s for e in b.episodes for h in e.holds]
     assert da != [h.sampled_d_s for e in c.episodes for h in e.holds]
@@ -27,7 +28,7 @@ def test_reproducible_from_seed() -> None:
 
 @pytest.mark.parametrize("name", ["uniform", "shifted_exp"])
 def test_histogram_matches_configured_distribution(name) -> None:
-    plan = plan_session(PROTO, "s", 3, name, 0, "op", 600)
+    plan = plan_session(PROTO, "s", 3, name, 0, "op", "syn-vascular", 600)
     d = np.array([h.sampled_d_s for e in plan.episodes for h in e.holds])
     dist = distribution_from_config(PROTO, name)
     assert len(d) > 2000
@@ -37,7 +38,7 @@ def test_histogram_matches_configured_distribution(name) -> None:
 
 
 def test_cue_clock() -> None:
-    plan = plan_session(PROTO, "s", 1, "uniform", 0, "op", 1).episodes[0]
+    plan = plan_session(PROTO, "s", 1, "uniform", 0, "op", "syn-vascular", 1).episodes[0]
     clk = CueClock(plan)
     assert clk.tick(100.0) is None                 # no hold started yet
     clk.arrived(10.0, 0)
@@ -65,8 +66,33 @@ def test_dry_run_script_waits_for_yes(tmp_path, monkeypatch) -> None:
 
     cfg = tmp_path / "configs"
     cmd = [sys.executable, str(SCRIPTS / "run_protocol_dry_run.py"), "--session-id", "x",
-           "--seed", "1", "--distribution", "uniform"]
+           "--seed", "1", "--distribution", "uniform", "--phantom-id", "vascular"]
     r = subprocess.run(cmd, input="no\n", capture_output=True, text=True, check=False)
     # protocol.yaml still has null stations -> refuses before asking (rig/protocol fact missing)
     assert r.returncode != 0 and "MissingRigFact" in r.stderr
     assert not cfg.exists()
+
+
+def test_randomises_order_backtracking_speed_tilt_lift() -> None:
+    plan = plan_session(PROTO, "s", 4, "uniform", 0, "op", "syn-vascular", 300)
+    holds = [h for e in plan.episodes for h in e.holds]
+    back = np.array([h.backtrack for h in holds])
+    assert 0.1 < back.mean() < 0.35                          # back-tracking happens
+    for e in plan.episodes:                                  # stations stay within presets
+        for a, b in zip(e.holds[:-1], e.holds[1:]):
+            assert b.station_index == a.next_station
+        assert all(0 <= h.next_station < PROTO["preset_stations"] for h in e.holds)
+    assert {h.sweep_speed_mps for h in holds} == set(PROTO["sweep_speeds_mps"])
+    tilt = np.array([h.tilt_deg for h in holds])
+    twist = np.array([h.twist_deg for h in holds])
+    assert np.abs(tilt).max() <= 10.0 and np.abs(twist).max() <= 15.0 and tilt.std() > 3
+    lift = np.mean([h.next_mode == "LIFT" for h in holds])
+    assert 0.12 < lift < 0.28
+    assert plan.info()["phantom_id"] == "syn-vascular"
+
+
+def test_each_new_protocol_value_is_required() -> None:
+    for key in ("preset_stations", "p_backtrack", "p_lift", "sweep_speeds_mps",
+                "tilt_twist_range_deg"):
+        with pytest.raises(MissingRigFact):
+            plan_session(syn_protocol(**{key: None}), "s", 1, "uniform", 0, "op", "v", 1)

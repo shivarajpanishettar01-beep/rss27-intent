@@ -35,11 +35,14 @@ def synthetic_trials(n_trials: int, dt: float) -> pd.DataFrame:
     from usintent.closedloop.trials import ScriptedLeaver, TrialConfig, run_paired
     from usintent.protocol.scheduler import distribution_from_config, plan_session
 
-    proto = {**load("protocol"), "stations_per_episode": {"min": 4, "max": 4}}   # synthetic only
+    proto = {**load("protocol"), "stations_per_episode": {"min": 4, "max": 4},   # SYNTHETIC only
+             "preset_stations": 6, "p_backtrack": 0.2, "p_lift": 0.2,
+             "sweep_speeds_mps": [0.01, 0.02, 0.03], "tilt_twist_range_deg": [10.0, 15.0]}
     out = []
     for name in ("uniform", "shifted_exp"):
         dist = distribution_from_config(proto, name)
-        plans = plan_session(proto, f"syn-{name}", 7, name, 0, "syn", n_trials).episodes
+        plans = plan_session(proto, f"syn-{name}", 7, name, 0, "syn", "syn-vascular",
+                             n_trials).episodes
         pols = {f"scripted-{r}": ScriptedLeaver(r, dist, 10, 0.001, seed=11) for r in
                 ("median", "imitator", "hedger")}
         df = run_paired(pols, plans, TrialConfig(dt_s=dt, thr_m=0.002, max_hold_s=200.0))

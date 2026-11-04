@@ -50,6 +50,25 @@ def test_all_blind_arm_configs_have_no_mode_input() -> None:
         assert load(f"arms/{arm}")["intent_aware"]
 
 
-def test_gr00t_adapter_refuses_honestly() -> None:
-    with pytest.raises(NotImplementedError, match="not readable"):
-        GR00TPolicy("A1")
+def test_gr00t_policy_needs_the_gr00t_environment() -> None:
+    """GR00T inference runs only where Isaac-GR00T is installed (lab GPU); here import fails."""
+    from usintent.policies.gr00t_adapter import arm_spec_from_config as gspec
+
+    with pytest.raises(ModuleNotFoundError):
+        GR00TPolicy("A1", gspec(load("arms/A1"), 10, 3, False), "ckpt", device="cpu")
+
+
+def test_contact_command_head(sampler) -> None:
+    from usintent.data.loaders import MODES
+    from usintent.policies.dp_adapter import ACT_DIM, contact_onehot
+
+    pol = DPPolicy(arm_spec_from_config(load("arms/DP-1"), 10, (32, 32), 3), seed=0)
+    rows = sampler.index.iloc[:6]
+    tgt = pol.targets(sampler, rows)
+    assert tgt.shape == (6, 10, ACT_DIM) and np.allclose(tgt[..., 5:].sum(-1), 1.0)
+    ep = sampler.episodes[0]
+    s = int(rows["start"].iloc[0])
+    assert np.array_equal(tgt[0, :, 5:], contact_onehot(ep.contact_cmd[s + 1:s + 11]))
+    pol.train_steps(sampler, 1, 2, 1e-4, np.random.default_rng(0))
+    _, m = pol.predict(sampler.history(0, 40), None)
+    assert m in MODES

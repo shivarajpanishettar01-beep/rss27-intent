@@ -83,3 +83,14 @@ def test_sensitivity_script_runs_on_synthetic() -> None:
                                    "--synthetic", "5", "--v-hold", "0.002", "--t-hold-min", "1.0",
                                    "--t-onset", "0.5"], text=True)
     assert '"data_source": "synthetic"' in out and "SYNTHETIC" in out
+
+
+def test_contact_source_must_be_explicit() -> None:
+    cfg = load("data")
+    seg = {**cfg["segmentation"], "v_hold_mps": 0.002, "t_hold_min_s": 1.0, "t_onset_s": 0.5}
+    with pytest.raises(MissingRigFact):                    # contact_source null
+        params_from_config({**cfg, "segmentation": seg})
+    p = params_from_config({**cfg, "segmentation": {**seg, "contact_source": "motion"}})
+    assert p.contact_force_n is None
+    with pytest.raises(MissingRigFact):                    # force needs its threshold
+        params_from_config({**cfg, "segmentation": {**seg, "contact_source": "force"}})

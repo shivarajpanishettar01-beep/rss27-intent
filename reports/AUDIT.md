@@ -2,6 +2,8 @@
 
 Findings ranked by severity. **Nothing was fixed as part of this audit**; each finding has a proposed fix for you to approve.
 
+> **Update (review fixes, see reports/REVIEW_FIXES.md):** findings 1, 2, 3, 4 and 6 are fixed; 5 (move image-method thresholds to config and validate on labelled frames) remains open; 7–9 unchanged.
+
 ## Summary
 - **No experimental number exists yet.** The only committed paper output is `figures/teaser_c.{json,png,pdf}` (theory, Monte Carlo + closed forms). Every other number in `reports/` is a SYNTHETIC code check or a cloud runtime measurement.
 - Passthrough is enforced on every policy-scoring path that decodes actions. Two paths can score without it (finding 4).

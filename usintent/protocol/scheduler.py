@@ -30,9 +30,17 @@ def distribution_from_config(proto: dict[str, Any], name: str) -> HoldDistributi
 @dataclass(frozen=True)
 class PlannedHold:
     hold_id: int
-    station_index: int
+    station_index: int          # preset station where this hold happens
     sampled_d_s: float          # hold start -> cue (s)
     next_mode: str              # SWEEP | LIFT, requested at the cue
+    next_station: int           # preset station the exit goes to (back-tracking if lower)
+    sweep_speed_mps: float      # speed level of the exit sweep
+    tilt_deg: float             # probe tilt at this station (within +-tilt range)
+    twist_deg: float            # probe twist at this station (within +-twist range)
+
+    @property
+    def backtrack(self) -> bool:
+        return self.next_station < self.station_index
 
 
 @dataclass
@@ -48,35 +56,58 @@ class SessionPlan:
     distribution: str
     block_id: int
     operator_id: str
+    phantom_id: str
     episodes: list[EpisodePlan] = field(default_factory=list)
 
     def info(self) -> dict[str, Any]:
         """Fields of the SessionInfo message."""
         return {"session_id": self.session_id, "seed": self.seed,
                 "hold_distribution": self.distribution, "block_id": self.block_id,
-                "operator_id": self.operator_id}
+                "operator_id": self.operator_id, "phantom_id": self.phantom_id}
 
 
 def plan_session(proto: dict[str, Any], session_id: str, seed: int, distribution: str,
-                 block_id: int, operator_id: str, n_episodes: int, p_lift: float = 0.0
+                 block_id: int, operator_id: str, phantom_id: str, n_episodes: int
                  ) -> SessionPlan:
-    """Sample the station count, order and cue offsets for every hold of a session block.
+    """Sample everything the protocol randomises for each episode of a session block
+    (paper Sec. IV): number of stations, their order including back-tracking, hold durations
+    (cue offsets) from the block's distribution, the exit mode (SWEEP or LIFT, i.e. lift-off
+    and re-contact timing), the sweep speed level and the probe tilt/twist at each station.
 
-    Station order is 0, 1, 2, ... (stations visited in sequence); ``p_lift`` is the probability
-    that the scheduler asks for LIFT instead of SWEEP at a cue (0 unless the protocol says so).
+    All protocol values come from protocol.yaml (nulls raise MissingRigFact):
+    stations_per_episode.{min,max} (holds per episode), preset_stations (number of preset
+    waypoints along the vessel), p_backtrack, p_lift, sweep_speeds_mps (levels),
+    tilt_twist_range_deg [max |tilt|, max |twist|].
     """
     smin = int(require(proto, "stations_per_episode.min"))
     smax = int(require(proto, "stations_per_episode.max"))
+    n_preset = int(require(proto, "preset_stations"))
+    p_back = float(require(proto, "p_backtrack"))
+    p_lift = float(require(proto, "p_lift"))
+    speeds = [float(v) for v in require(proto, "sweep_speeds_mps")]
+    tilt_max, twist_max = (float(v) for v in require(proto, "tilt_twist_range_deg"))
+    if n_preset < 2:
+        raise ValueError("need at least 2 preset stations")
     dist = distribution_from_config(proto, distribution)
     rng = np.random.default_rng(seed)
-    plan = SessionPlan(session_id, seed, distribution, block_id, operator_id)
+    plan = SessionPlan(session_id, seed, distribution, block_id, operator_id, phantom_id)
     hid = 0
     for e in range(n_episodes):
         n = int(rng.integers(smin, smax + 1))
         d = dist.sample(n, rng)
-        lift = rng.random(n) < p_lift
-        holds = [PlannedHold(hid + j, j, float(d[j]), "LIFT" if lift[j] else "SWEEP")
-                 for j in range(n)]
+        station = 0
+        holds = []
+        for j in range(n):
+            forward_ok = station + 1 < n_preset
+            back = station > 0 and (not forward_ok or rng.random() < p_back)
+            nxt = station - 1 if back else station + 1
+            holds.append(PlannedHold(
+                hold_id=hid + j, station_index=station, sampled_d_s=float(d[j]),
+                next_mode="LIFT" if rng.random() < p_lift else "SWEEP", next_station=nxt,
+                sweep_speed_mps=float(rng.choice(speeds)),
+                tilt_deg=float(rng.uniform(-tilt_max, tilt_max)),
+                twist_deg=float(rng.uniform(-twist_max, twist_max))))
+            station = nxt
         hid += n
         plan.episodes.append(EpisodePlan(e, holds))
     return plan

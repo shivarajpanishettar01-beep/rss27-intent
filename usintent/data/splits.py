@@ -72,3 +72,14 @@ def save_assignment(day_to_split: dict[str, str], path: Path) -> None:
 def load_assignment(path: Path) -> dict[str, str]:
     data = yaml.safe_load(Path(path).read_text())
     return {str(k): str(v) for k, v in data["assignment"].items()}
+
+
+def assert_disjoint(train: Iterable[object], test: Iterable[object]) -> None:
+    """Raise SplitLeakageError if any session or day appears in both episode sets.
+
+    Called by every script that takes a train and a test/eval dataset (CLAUDE.md rule 5)."""
+    tr, te = list(train), list(test)
+    for unit in ("session_id", "day"):
+        shared = {getattr(e, unit) for e in tr} & {getattr(e, unit) for e in te}
+        if shared:
+            raise SplitLeakageError(f"{unit}(s) in both train and test: {sorted(map(str, shared))}")

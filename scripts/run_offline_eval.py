@@ -24,6 +24,7 @@ from usintent.baselines.b4_hazard_optimal import HazardOptimalBlind
 from usintent.baselines.b6_stop_on_hold import StopOnHold
 from usintent.config import load, require
 from usintent.data.chunks import ChunkSampler, policy_target
+from usintent.data.splits import assert_disjoint
 from usintent.paths import RESULTS
 from usintent.policies.evaluate import EvalContext, load_policy, offline_eval
 from usintent.provenance import output_dir, stamp
@@ -68,6 +69,7 @@ def main() -> None:
         thr = float(require(load("metrics"), "departure_threshold_m"))
         v_hold = float(require(data, "segmentation.v_hold_mps"))
     h, k = float(data["chunk_horizon_s"]), int(data["history_frames_k"])
+    assert_disjoint(tr_eps, te_eps)                       # CLAUDE.md rule 5
     train, test = ChunkSampler(tr_eps, h, history_k=k), ChunkSampler(te_eps, h, history_k=k)
     n = test.n_steps(te_eps[0])
     ctx = EvalContext(test, v_hold)
@@ -84,9 +86,18 @@ def main() -> None:
     for run_dir in args.runs:
         run = json.loads((run_dir / "run.json").read_text())
         cfg = load(f"arms/{run['arm']}")
+        ckpt = run_dir / "model.pt"
+        if run.get("family") == "gr00t_h":
+            from usintent.policies.gr00t_adapter import gr00t_passthrough
+
+            gr00t_passthrough(te_eps, n)                    # GR00T action path, rule 4
+            ckpts = sorted(run_dir.glob("checkpoint-*"), key=lambda p: int(p.name.split("-")[-1]))
+            if not ckpts:
+                raise SystemExit(f"{run_dir}: no GR00T checkpoint-* directory")
+            ckpt = ckpts[-1]
         for det in cfg["sampler_controls"]["deterministic_noise"]:
             for steps in cfg["sampler_controls"]["integration_steps"]:
-                pol = load_policy(run["arm"], run_dir / "model.pt", det, steps)
+                pol = load_policy(run["arm"], ckpt, det, steps)
                 setting = f"det={det},steps={steps}"
                 r, per = offline_eval(f"{run['arm']}/{run_dir.parent.name}", run["arm"],
                                       run["seed"], setting, pol, ctx, rows, thr)

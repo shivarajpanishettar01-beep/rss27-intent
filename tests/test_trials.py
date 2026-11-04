@@ -6,8 +6,8 @@ import sys
 import numpy as np
 import pytest
 
+from tests.protocol_fixtures import syn_protocol
 from usintent.closedloop.trials import ScriptedLeaver, TrialConfig, run_paired, run_trial
-from usintent.config import load
 from usintent.metrics.closed_loop import force_in_band, fraction_true, trial_success
 from usintent.paths import SCRIPTS
 from usintent.protocol.scheduler import plan_session
@@ -29,8 +29,8 @@ def test_fig1c_reproduced_within_mc_error(tmp_path) -> None:
 
 
 def test_pairing_same_holds_for_every_arm() -> None:
-    proto = {**load("protocol"), "stations_per_episode": {"min": 3, "max": 3}}
-    plans = plan_session(proto, "p", 1, "uniform", 0, "op", 5).episodes
+    proto = syn_protocol(stations_per_episode={"min": 3, "max": 3})
+    plans = plan_session(proto, "p", 1, "uniform", 0, "op", "syn-vascular", 5).episodes
     pols = {r: ScriptedLeaver(r, Uniform(2, 10), 5, 0.001, 0) for r in ("median", "hedger")}
     df = run_paired(pols, plans, TrialConfig(0.05, 0.002))
     a, b = df[df.arm == "median"], df[df.arm == "hedger"]
@@ -39,8 +39,8 @@ def test_pairing_same_holds_for_every_arm() -> None:
 
 
 def test_robot_does_not_move_before_commit() -> None:
-    proto = {**load("protocol"), "stations_per_episode": {"min": 2, "max": 2}}
-    plan = plan_session(proto, "p", 2, "uniform", 0, "op", 1).episodes[0]
+    proto = syn_protocol(stations_per_episode={"min": 2, "max": 2})
+    plan = plan_session(proto, "p", 2, "uniform", 0, "op", "syn-vascular", 1).episodes[0]
     df = run_trial(ScriptedLeaver("median", Uniform(2, 10), 5, 0.001, 0), plan, TrialConfig(0.05, 0.002), "t")
     assert (df["drift_m"] == 0).all()
 
@@ -53,3 +53,15 @@ def test_closed_loop_metric_helpers() -> None:
     assert not trial_success(np.array([0.9]), np.array([True, False]), 0.8)
     with pytest.raises(ValueError):
         force_in_band(np.zeros(2), (3.0, 1.0))
+
+
+def test_reaction_time_enters_d_and_is_paired() -> None:
+    proto = syn_protocol(stations_per_episode={"min": 3, "max": 3})
+    plans = plan_session(proto, "p", 5, "uniform", 0, "op", "syn-vascular", 4).episodes
+    rng = np.random.default_rng(0)
+    r = [rng.lognormal(np.log(0.35), 0.25, 3) for _ in plans]
+    pols = {k: ScriptedLeaver(k, Uniform(2, 10), 5, 0.001, 0) for k in ("median", "imitator")}
+    df = run_paired(pols, plans, TrialConfig(0.05, 0.002), reaction_s=r)
+    expect = np.concatenate([[h.sampled_d_s for h in p.holds] + r[i] for i, p in enumerate(plans)])
+    for arm in pols:
+        assert np.allclose(df[df.arm == arm]["D"].to_numpy(), expect)

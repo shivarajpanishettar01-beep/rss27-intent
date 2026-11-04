@@ -226,6 +226,8 @@ class ChunkSampler:
         }
         if ep.bmode is not None:
             out["bmode"] = ep.bmode[idx]
+        if ep.camera is not None:
+            out["camera"] = ep.camera[idx]
         return out
 
     def sample(self, n: int, rng: np.random.Generator,

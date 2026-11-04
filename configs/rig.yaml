@@ -5,7 +5,7 @@ topics:
   bmode_type: null
   wrench: null
   wrench_frame: null
-  camera: null          # leave null if no probe camera
+  camera: null          # probe-camera topic, or "none" if the rig has no probe camera
   tcp_pose: null
 rates_hz:
   bmode: null

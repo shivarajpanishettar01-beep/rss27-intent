@@ -1,17 +1,27 @@
-"""M5 teleop gating against a mock robot: motion only after the operator key press."""
+"""Teleop gating against a mock robot: motion only after the operator key press, and only to
+the planned station (SYNTHETIC protocol values)."""
 import pytest
 
-from usintent.protocol.teleop import GateError, TeleopGate
+from tests.protocol_fixtures import syn_protocol
+from usintent.protocol.scheduler import plan_session
+from usintent.protocol.teleop import KEY_MODES, GateError, TeleopGate
+
+KEY_FOR = {v: k for k, v in KEY_MODES.items()}
+
+
+def _gate(seed=3):
+    proto = syn_protocol(stations_per_episode={"min": 5, "max": 5})
+    plan = plan_session(proto, "s", seed, "uniform", 0, "op", "syn-vascular", 1).episodes[0]
+    return TeleopGate(plan=plan, n_stations=proto["preset_stations"]), plan
 
 
 class MockRobot:
-    """Moves only when given a target by the gate; records every executed motion."""
+    """Moves only when the gate releases a command; records every executed motion."""
 
-    def __init__(self, gate: TeleopGate):
-        self.gate = gate
-        self.moves = []
+    def __init__(self, gate):
+        self.gate, self.moves = gate, []
 
-    def try_move(self, t: float, target: int) -> bool:
+    def try_move(self, t, target=None):
         try:
             cmd = self.gate.motion_command(t, target)
         except GateError:
@@ -20,31 +30,35 @@ class MockRobot:
         return True
 
 
-def test_motion_gated_on_key() -> None:
-    gate = TeleopGate(n_stations=4)
+def test_motion_gated_on_key_and_follows_plan() -> None:
+    gate, plan = _gate()
     robot = MockRobot(gate)
     gate.arrived_initial(0.0)
-    assert not robot.try_move(1.0, 1)                     # no key yet
-    ev = gate.key(2.5, "s")
-    assert ev["mode"] == "SWEEP" and ev["stamp"] == 2.5 and ev["source"] == "operator_key"
-    assert robot.try_move(2.5, 1)
-    assert not robot.try_move(2.6, 2)                     # one command per key
-    assert gate.key(3.0, "s") is None                     # keys ignored while moving
-    gate.arrived(4.0, 1)
-    assert not robot.try_move(4.1, 2)
-    gate.key(6.0, "l")
-    assert robot.try_move(6.0, 2)
-    assert [m["stamp"] for m in robot.moves] == [2.5, 6.0]
-    assert all(m["stamp"] >= e["stamp"] for m, e in zip(
-        robot.moves, [x for x in gate.events if x["source"] == "operator_key"]))
-    assert [e["source"] for e in gate.events] == ["arrival", "operator_key", "arrival", "operator_key"]
+    t = 1.0
+    for i, h in enumerate(plan.holds):
+        assert not robot.try_move(t)                                # no key yet
+        wrong = "l" if h.next_mode == "SWEEP" else "s"
+        assert gate.key(t, wrong) is None                           # wrong key ignored
+        ev = gate.key(t + 0.5, KEY_FOR[h.next_mode])
+        assert ev["mode"] == h.next_mode and ev["hold_id"] == h.hold_id
+        bad = (h.next_station + 1) % 6
+        assert not robot.try_move(t + 0.5, bad)                     # not the planned station
+        assert robot.try_move(t + 0.5)
+        assert not robot.try_move(t + 0.6)                          # one command per key
+        cmd = robot.moves[-1]
+        assert cmd["target_station"] == h.next_station and cmd["speed_mps"] == h.sweep_speed_mps
+        if i + 1 < len(plan.holds):
+            assert cmd["tilt_deg"] == plan.holds[i + 1].tilt_deg
+        with pytest.raises(GateError):
+            gate.arrived(t + 1.0, (h.next_station + 2) % 6)
+        gate.arrived(t + 1.0, h.next_station)
+        t += 5.0
+    assert gate.state == "DONE"
+    assert sum(e["source"] == "wrong_key" for e in gate.events) == len(plan.holds)
 
 
 def test_bad_inputs() -> None:
-    gate = TeleopGate(n_stations=2)
+    gate, _ = _gate()
     assert gate.key(0.0, "x") is None
-    gate.key(0.1, "s")
     with pytest.raises(GateError):
-        gate.motion_command(0.2, 5)
-    with pytest.raises(GateError):
-        TeleopGate(n_stations=2).arrived(0.0, 1)
+        gate.arrived(0.0, 1)

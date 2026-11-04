@@ -19,10 +19,11 @@ def main() -> None:
     ap.add_argument("--distribution", choices=["uniform", "shifted_exp"], required=True)
     ap.add_argument("--block-id", type=int, default=0)
     ap.add_argument("--operator-id", default="op")
+    ap.add_argument("--phantom-id", required=True, help="e.g. vascular | neck_central_line")
     ap.add_argument("--episodes", type=int, default=1)
     args = ap.parse_args()
     plan = plan_session(load("protocol"), args.session_id, args.seed, args.distribution,
-                        args.block_id, args.operator_id, args.episodes)
+                        args.block_id, args.operator_id, args.phantom_id, args.episodes)
     try:
         confirm({**plan.info(), "episodes": [[h.__dict__ for h in e.holds] for e in plan.episodes]})
     except NotConfirmed:

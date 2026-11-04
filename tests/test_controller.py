@@ -55,3 +55,14 @@ def test_policy_never_commands_force() -> None:
     chunk = np.full((10, 5), 1.0)                              # absurd policy output
     tw = hybrid_command(P, "SWEEP", chunk, force_n=4.0, dt=DT)
     assert tw[2] == pytest.approx(0.0)                         # normal axis owned by force law
+
+
+def test_control_period_from_config() -> None:
+    from usintent.config import MissingRigFact
+    from usintent.control.controller import control_period_s
+
+    with pytest.raises(MissingRigFact):
+        control_period_s({"rate_hz": None}, LIM)
+    assert control_period_s({"rate_hz": 100.0}, LIM) == pytest.approx(0.01)
+    with pytest.raises(ValueError):                        # 20 ms period >= 20 ms watchdog
+        control_period_s({"rate_hz": 50.0}, LIM)

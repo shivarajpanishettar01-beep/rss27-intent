@@ -4,5 +4,6 @@ recontact_setpoint_n: null    # set-point while RECONTACT (N)
 admittance_gain_mps_per_n: null   # normal-axis velocity per newton of force error
 position_gain_per_s: null     # tangential tracking gain (1/s)
 lift_speed_mps: null          # retract speed along -tool z for LIFT
+rate_hz: null                 # control loop rate; its period must be below safety watchdog_period_s
 cmd_topic: null               # controller input topic of the UR driver (read the driver docs)
 cmd_type: null                # its message type

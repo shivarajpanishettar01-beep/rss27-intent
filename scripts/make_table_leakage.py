@@ -15,7 +15,13 @@ from pathlib import Path
 from usintent.config import load, require
 from usintent.data.loaders import load_dataset, load_openh
 from usintent.data.segmentation import params_from_config, segment_threshold
-from usintent.leakage.classifier import build_dataset, evaluate, permutation_test
+from usintent.leakage.classifier import (
+    build_dataset,
+    evaluate,
+    evaluate_remaining,
+    permutation_test,
+    permutation_test_remaining,
+)
 from usintent.paths import FIGURES
 from usintent.provenance import output_dir, stamp
 
@@ -56,7 +62,15 @@ def main() -> None:
     for name, data in runs.items():
         tab = evaluate(data)
         perm = permutation_test(data, n_perm=args.n_perm)
-        result[name] = {"table": tab.to_dict(orient="records"), "permutation": perm}
+        reg = evaluate_remaining(data)
+        perm_r = permutation_test_remaining(data, n_perm=args.n_perm)
+        result[name] = {"table": tab.to_dict(orient="records"), "permutation": perm,
+                        "remaining_time": reg.to_dict(orient="records"),
+                        "permutation_remaining": perm_r}
+        md += [f"| {name} | {r.model} (remaining time) | {r.features} | MAE {r.mae_s:.3f} s | | {r.n} | | |"
+               for r in reg.itertuples()]
+        md.append(f"| {name} | permutation (remaining) | gain {perm_r['statistic_mae_gain_s']:.3f} s | "
+                  f"p = {perm_r['p_value']:.4f} | | {perm_r['n_perm']} perms | | |")
         md += [f"| {name} | {r.model} | {r.features} | {r.logloss:.4f} | {r.auroc:.3f} | {r.n} | "
                f"{r.n_holds} | {r.n_sessions} |" for r in tab.itertuples()]
         md.append(f"| {name} | permutation | gain {perm['statistic_logloss_gain']:.4f} | "

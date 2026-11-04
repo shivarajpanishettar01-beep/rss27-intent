@@ -8,7 +8,10 @@ Nothing here commands the robot. Keep the physical e-stop within reach anyway (d
   The converter supports only `sensor_msgs/msg/Image` with `mono8`; if micrus publishes another
   type, send me its `.msg` definition (or the micrus source) and I extend the converter.
 - `topics.wrench`, `topics.tcp_pose` (and `topics.camera` if a probe camera exists).
-- `configs/protocol.yaml: stations_per_episode.min/max, sweep_speeds_mps, audio_cue_command`.
+- `configs/protocol.yaml: stations_per_episode.min/max, preset_stations, p_backtrack, p_lift,
+  sweep_speeds_mps, tilt_twist_range_deg, audio_cue_command`.
+- `rig.yaml topics.camera` (topic or "none"). Every session needs `--phantom-id` / `phantom_id:=`
+  (e.g. `vascular`, `neck_central_line`).
 
 ## 1. Build (ROS 2 environment)
 ```bash
@@ -20,14 +23,14 @@ session); paste any error back to me. Runtime: ~1–3 min.
 
 ## 2. Plan-only dry run (no ROS)
 ```bash
-python scripts/run_protocol_dry_run.py --session-id pilot-dry --seed 1 --distribution uniform
+python scripts/run_protocol_dry_run.py --session-id pilot-dry --seed 1 --distribution uniform --phantom-id vascular
 ```
 Expected: JSON with the session info and per-hold `sampled_d_s`, then a prompt; type `yes`.
 
 ## 3. ROS dry run (scheduler without audio + teleop; no motion executor running)
 ```bash
 ros2 launch us_intent_scheduler protocol_dry_run.launch.py session_id:=pilot-dry seed:=1 \
-    distribution:=uniform n_stations:=4
+    distribution:=uniform phantom_id:=vascular
 ```
 Expected: the scheduler prints the plan and waits for `yes`; after `yes`, `ros2 topic echo
 /protocol/session` shows the latched SessionInfo. Pressing `s` in the teleop terminal publishes a

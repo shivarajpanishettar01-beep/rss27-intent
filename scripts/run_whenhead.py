@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 
 from usintent.config import load, require
+from usintent.data.splits import assert_disjoint
 from usintent.paths import RESULTS
 from usintent.provenance import stamp
 from usintent.whenhead.commit import commit_times
@@ -42,6 +43,7 @@ def main() -> None:
         p = FeatureParams(float(require(wh, "bin_width_s")), float(require(wh, "coupling_threshold")),
                           str(wh["confidence_impl"]))
         tr_eps, te_eps = load_dataset(args.train), load_dataset(args.test)
+    assert_disjoint(tr_eps, te_eps)                       # CLAUDE.md rule 5
     tr, te = hold_bins(tr_eps, p), hold_bins(te_eps, p)
     full = WhenHead(list(wh["g_img_hidden"]), seed=args.seed).fit(tr)
     eonly = WhenHead(list(wh["g_img_hidden"]), image=False, seed=args.seed).fit(tr)

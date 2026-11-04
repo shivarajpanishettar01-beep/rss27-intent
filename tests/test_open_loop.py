@@ -71,3 +71,12 @@ def test_ground_truth_chunks_reproduce_pibar_tau() -> None:
     rate = ol.departure_like_rate(gt, np.ones(len(rows), bool), thr)["all"]
     assert rate == pytest.approx(pibar_tau(Uniform(2, 10), 1.0, departure_tau(thr, 0.02, 0.5)), abs=0.01)
     assert ol.hold_drift(gt, np.ones(len(rows), bool), rows["contains_departure"].to_numpy()) == 0.0
+
+
+def test_departure_like_counts_contact_changing_m_hat() -> None:
+    pred = _const(4, 5)                                    # no tangential motion at all
+    m_hat = ["HOLD", "SWEEP", "LIFT", "RECONTACT"]
+    assert list(ol.departure_like(pred, 0.001, m_hat)) == [False, False, True, True]
+    assert ol.departure_like_rate(pred, np.ones(4, bool), 0.001, m_hat=m_hat)["all"] == 0.5
+    with pytest.raises(ValueError):
+        ol.departure_like(pred, 0.001, ["HOLD"])

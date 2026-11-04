@@ -61,6 +61,7 @@ class HoldWorldConfig:
     lift_height_m: float = 0.01
     lift_time_s: float = 0.4
     tool_yaw_rad: float = 0.0
+    pose_jitter_m: float = 0.0                      # i.i.d. tangential position noise (controller jitter)
     force_n: float = 5.0
     force_noise_n: float = 0.2
     image_shape: tuple[int, int] = (64, 64)
@@ -79,6 +80,9 @@ class HoldWorldConfig:
     session_id: str = "syn-s0"
     day: str = "syn-d0"
     operator_id: str = "syn-op0"
+    phantom_id: str = "syn-vascular"
+    render_camera: bool = False                     # synthetic probe camera (RGB)
+    camera_shape: tuple[int, int] = (24, 32)
     block_id: int = 0
     seed: int = 0
 
@@ -172,6 +176,22 @@ def render_bmode(cfg: HoldWorldConfig, x_elev: NDArray[np.float64], coupling: ND
     return frames
 
 
+def render_camera(cfg: HoldWorldConfig, x_elev: NDArray[np.float64], z_lift: NDArray[np.float64]
+                  ) -> NDArray[np.uint8]:
+    """SYNTHETIC probe camera: RGB stripes on the phantom surface, shifted with probe position
+    x (1 px per mm) and darkened as the probe lifts. (N, rows, cols, 3) uint8."""
+    rows, cols = cfg.camera_shape
+    cc = np.arange(cols)[None, :]
+    out = np.empty((len(x_elev), rows, cols, 3), dtype=np.uint8)
+    for k in range(len(x_elev)):
+        phase = (cc + x_elev[k] * 1000.0) / 6.0
+        base = 0.5 + 0.5 * np.sin(phase)
+        light = 1.0 - 0.5 * min(1.0, z_lift[k] / max(cfg.lift_height_m, 1e-9))
+        img = np.stack([base, 0.5 * base + 0.25, 1.0 - base], axis=-1) * 200.0 * light
+        out[k] = np.repeat(img, rows, axis=0).astype(np.uint8)
+    return out
+
+
 # ------------------------------------------------------------------------------- episodes
 
 
@@ -261,6 +281,8 @@ def generate_episode(cfg: HoldWorldConfig, episode_index: int, rng: np.random.Ge
     pose = np.zeros((n, 6))
     pose[:, 0] = x
     pose[:, 2] = z_lift
+    if cfg.pose_jitter_m > 0:
+        pose[:, 0:2] += cfg.pose_jitter_m * rng.standard_normal((n, 2))
     pose[:, 3:6] = r_tool.as_rotvec()
     state = np.zeros((n, 12))
     state[:, :6] = pose            # joints 6..11 stay 0: synthetic world has no arm kinematics
@@ -285,6 +307,7 @@ def generate_episode(cfg: HoldWorldConfig, episode_index: int, rng: np.random.Ge
             "reaction_time": np.nan if censored else h.R, "exit_type": h.exit_type,
             "backtrack": bool(h.backtrack), "sampled_D": h.cue - h.start,
             "distribution": cfg.distribution_name, "block_id": cfg.block_id, "censored": censored,
+            "sweep_speed_mps": h.v,
             "gt_exit_speed_mps": h.v, "gt_D": h.D, "gt_exit_direction": float(
                 np.sign(h.next - h.station)),
         })
@@ -293,8 +316,9 @@ def generate_episode(cfg: HoldWorldConfig, episode_index: int, rng: np.random.Ge
     ep = Episode(
         episode_index=episode_index, fps=cfg.fps, time=time, state=state, action=action,
         wrench=wrench, mode=mode, contact_cmd=cmd, station_index=station_idx, hold_id=hold_id,
-        session_id=cfg.session_id, day=cfg.day, operator_id=cfg.operator_id, holds=holds_df,
-        bmode=bmode,
+        session_id=cfg.session_id, day=cfg.day, operator_id=cfg.operator_id,
+        phantom_id=cfg.phantom_id, holds=holds_df, bmode=bmode,
+        camera=render_camera(cfg, x, z_lift) if cfg.render_camera else None,
         extras={"gt.adequacy": adequacy, "gt.in_contact": in_contact.astype(np.float64),
                 "gt.speed_mps": np.abs(speed)},
     )
@@ -307,13 +331,14 @@ def generate(cfg: HoldWorldConfig, n_episodes: int, sessions: int = 1, days: int
     """Generate ``n_episodes`` episodes, deterministic given ``cfg.seed``.
 
     Episodes are spread round-robin over ``sessions`` sessions; session j belongs to day
-    j % days. Session/day ids are "syn-s<j>", "syn-d<j % days>".
+    j % days. Session/day ids are "syn<seed>-s<j>", "syn<seed>-d<j % days>", so datasets
+    generated with different seeds never share a session or day.
     """
     rng = np.random.default_rng(cfg.seed)
     episodes, hold_id = [], 0
     for i in range(n_episodes):
         s = i % sessions
-        c = replace(cfg, session_id=f"syn-s{s}", day=f"syn-d{s % days}")
+        c = replace(cfg, session_id=f"syn{cfg.seed}-s{s}", day=f"syn{cfg.seed}-d{s % days}")
         ep = generate_episode(c, i, rng, first_hold_id=hold_id)
         hold_id += len(ep.holds)
         episodes.append(ep)

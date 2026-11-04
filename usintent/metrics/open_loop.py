@@ -7,6 +7,7 @@ error metrics only.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TypeAlias
 
 import numpy as np
@@ -71,17 +72,33 @@ def hold_drift(pred: Chunks, in_hold: NDArray[np.bool_], contains_departure: NDA
     return float(np.linalg.norm(pred[sel, :, :2], axis=-1).mean())
 
 
-def departure_like(pred: Chunks, thr_m: float) -> NDArray[np.bool_]:
-    """Per chunk: predicted max displacement exceeds ``thr_m`` (m)."""
+CONTACT_CHANGING = frozenset({"LIFT", "RECONTACT"})
+
+
+def departure_like(pred: Chunks, thr_m: float, m_hat: Sequence[str] | None = None
+                   ) -> NDArray[np.bool_]:
+    """Per chunk: predicted max tangential displacement exceeds ``thr_m`` (m), OR the predicted
+    contact command m_hat changes contact (LIFT / RECONTACT).
+
+    The action has no probe-axis component (the force controller owns it), so a spurious
+    lift-off during a hold can only appear as m_hat = LIFT. m_hat = SWEEP without tangential
+    motion does not move the robot and is therefore not counted.
+    """
     if thr_m <= 0:
         raise ValueError("threshold must be positive")
-    return np.asarray(max_displacement(pred) > thr_m)
+    flags = np.asarray(max_displacement(pred) > thr_m)
+    if m_hat is not None:
+        if len(m_hat) != len(flags):
+            raise ValueError("m_hat must have one entry per chunk")
+        flags = flags | np.array([m in CONTACT_CHANGING for m in m_hat], dtype=bool)
+    return np.asarray(flags)
 
 
 def departure_like_rate(pred: Chunks, in_hold: NDArray[np.bool_], thr_m: float,
-                        exit_type: NDArray[np.str_] | None = None) -> dict[str, float]:
+                        exit_type: NDArray[np.str_] | None = None,
+                        m_hat: Sequence[str] | None = None) -> dict[str, float]:
     """Fraction of hold chunks predicted departure-like; overall ("all") and per exit type."""
-    flags = departure_like(pred, thr_m)
+    flags = departure_like(pred, thr_m, m_hat)
     out = {"all": float(flags[in_hold].mean()) if np.any(in_hold) else float("nan")}
     if exit_type is not None:
         for et in np.unique(exit_type[in_hold]):

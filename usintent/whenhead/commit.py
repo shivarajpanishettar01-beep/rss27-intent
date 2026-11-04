@@ -73,3 +73,53 @@ def commit_times(model: WhenHead, bins: pd.DataFrame, bin_width_s: float, thresh
         rows.append({"hold_key": key, "D": d, "T": t, "err": abs(t - d),
                      "exit_pred": exit_pred, "exit_type": grp["exit_type"].iloc[0]})
     return pd.DataFrame(rows)
+
+
+class WhenHeadPolicy:
+    """Arm A7: an intent-blind wrapper that feeds the when-head's committed m_hat (never the
+    scheduler or the operator) as the mode input of an A5-type policy (paper Fig. 2).
+
+    While HOLD is committed the output is forced to zero motion. The wrapper itself is not in
+    INTENT_AWARE_ARMS, so the evaluation harness never hands it intent; ``history`` must carry
+    ``bmode``, ``wrench``, ``time`` and ``e_proprio`` (elapsed hold time from proprioception).
+    """
+
+    arm_id = "A7"
+    intent_aware = False
+
+    def __init__(self, model: WhenHead, inner: Any, feature_params: Any, threshold: float = 0.5):
+        from usintent.whenhead.features import coupling_indicator, kappa, vessel_roi
+
+        if not getattr(inner, "intent_aware", False):
+            raise ValueError("A7's inner policy must be an A5-type (mode-conditioned) model")
+        self.rule = CommitRule(model, threshold)
+        self.inner, self.p = inner, feature_params
+        self._kappa, self._coupling, self._roi_fn = kappa, coupling_indicator, vessel_roi
+        self._roi: Any = None
+
+    def features(self, history: dict[str, Any]) -> dict[str, float]:
+        frame = history["bmode"][-1]
+        if self._roi is None:
+            self._roi = self._roi_fn(frame)
+        t, fz = history["time"], history["wrench"][:, 2]
+        sel = t >= t[-1] - self.p.force_window_s
+        return {"e": float(history["e_proprio"][-1]),
+                "kappa": self._kappa(frame, self.p.confidence_impl, self._roi),
+                "s": self._coupling(frame, self.p.coupling_threshold),
+                "f": float(np.var(fz[sel])) if sel.sum() > 1 else 0.0}
+
+    def predict(self, history: dict[str, Any], mode: str | None = None) -> tuple[Any, str]:
+        if mode is not None:
+            raise PermissionError("A7 is intent-blind and must not receive the scheduler mode")
+        e = float(history["e_proprio"][-1])
+        if np.isnan(e):                         # moving: no hold active, reset for the next one
+            self.rule.reset()
+            self._roi = None
+            m_hat = self.rule.committed or "SWEEP"
+            chunk, _ = self.inner.predict(history, m_hat)
+            return chunk, m_hat
+        m_hat, zero = self.rule.step(self.features(history))
+        chunk, _ = self.inner.predict(history, m_hat)
+        if zero:
+            chunk = np.zeros_like(np.asarray(chunk, dtype=np.float64))
+        return chunk, m_hat

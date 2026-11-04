@@ -15,7 +15,9 @@ Dataset fields (LeRobot v3.0, docs/INTERFACES.md):
                           chunk (usintent.data.chunks); keeping dz makes chunk composition exact.
 - ``action.contact_cmd``  logged operator mode (switches at the key press).
 - ``mode``                scheduler mode m_t (switches at the cue).
-- ``station_index``, ``hold_id``, ``episode_time``, ``session_id``, ``day``, ``operator_id``.
+- ``observation.camera``  uint8 RGB probe-camera frame (only if the rig has a probe camera).
+- ``station_index``, ``hold_id``, ``episode_time``, ``session_id``, ``day``, ``operator_id``,
+  ``phantom_id`` (which phantom/target: e.g. vascular vs central-line neck phantom).
 - ``gt.*``                synthetic ground truth (hold-world only; absent in real data).
 Per-hold sidecar: ``meta/holds.parquet`` (columns in :data:`HOLD_COLUMNS`).
 """
@@ -36,6 +38,7 @@ EXIT_TYPES = ("SWEEP", "LIFT")
 HOLD_COLUMNS = [
     "hold_id", "episode_index", "station_index", "start_time", "cue_time", "key_time", "D",
     "reaction_time", "exit_type", "backtrack", "sampled_D", "distribution", "block_id", "censored",
+    "sweep_speed_mps",
 ]
 STATE_DIM, ACTION_DIM, WRENCH_DIM = 12, 6, 6
 
@@ -57,6 +60,7 @@ class Episode:
     session_id: str
     day: str
     operator_id: str
+    phantom_id: str                      # phantom / target id (analyses stratify by it)
     holds: pd.DataFrame                  # sidecar rows of this episode (HOLD_COLUMNS)
     bmode: NDArray[np.uint8] | None = None   # (N, rows, cols)
     camera: NDArray[np.uint8] | None = None  # (N, rows, cols, 3) if a probe camera exists
@@ -81,6 +85,10 @@ class Episode:
                 raise ValueError(f"{name} must have shape ({n},)")
         if self.bmode is not None and self.bmode.shape[0] != n:
             raise ValueError("bmode length differs from time")
+        if self.camera is not None and (self.camera.shape[0] != n or self.camera.ndim != 4):
+            raise ValueError("camera must be (N, rows, cols, 3)")
+        if not self.phantom_id:
+            raise ValueError("phantom_id must be set")
         if n > 1 and not np.all(np.diff(self.time) > 0):
             raise ValueError("timestamps are not strictly monotonic")
         bad = set(np.unique(self.mode)) | set(np.unique(self.contact_cmd))
@@ -121,11 +129,15 @@ def _features(ep: Episode) -> dict[str, dict[str, Any]]:
         "session_id": {"dtype": "string", "shape": (1,), "names": None},
         "day": {"dtype": "string", "shape": (1,), "names": None},
         "operator_id": {"dtype": "string", "shape": (1,), "names": None},
+        "phantom_id": {"dtype": "string", "shape": (1,), "names": None},
     }
     if ep.bmode is not None:
         r, c = ep.bmode.shape[1:]
         feats["observation.bmode"] = {"dtype": "image", "shape": (r, c, 3),
                                       "names": ["height", "width", "channel"]}
+    if ep.camera is not None:
+        feats["observation.camera"] = {"dtype": "image", "shape": tuple(ep.camera.shape[1:]),
+                                       "names": ["height", "width", "channel"]}
     for k, v in ep.extras.items():
         feats[k] = {"dtype": "float64", "shape": (1,) if v.ndim == 1 else v.shape[1:], "names": None}
     return feats
@@ -170,7 +182,10 @@ def write_lerobot(episodes: list[Episode], root: Path, repo_id: str = "local/usi
                 "session_id": ep.session_id,
                 "day": ep.day,
                 "operator_id": ep.operator_id,
+                "phantom_id": ep.phantom_id,
             }
+            if ep.camera is not None:
+                frame["observation.camera"] = ep.camera[k]
             if ep.bmode is not None:
                 frame["observation.bmode"] = np.repeat(ep.bmode[k][:, :, None], 3, axis=2)
             for name, v in ep.extras.items():
@@ -200,7 +215,8 @@ def read_lerobot(root: Path, repo_id: str = "local/usintent") -> list[Episode]:
     root = Path(root)
     ds = LeRobotDataset(repo_id, root=root)
     hf = ds.hf_dataset
-    keep = [c for c in hf.column_names if c != "observation.bmode"]
+    images = ("observation.bmode", "observation.camera")
+    keep = [c for c in hf.column_names if c not in images]
     table = hf.select_columns(keep).to_pandas()
     holds_path = root / "meta" / "holds.parquet"
     holds = pd.read_parquet(holds_path) if holds_path.is_file() else pd.DataFrame(columns=HOLD_COLUMNS)
@@ -208,7 +224,10 @@ def read_lerobot(root: Path, repo_id: str = "local/usintent") -> list[Episode]:
     episodes = []
     for ep_idx, rows in table.groupby("episode_index", sort=True):
         idx = rows.index.to_numpy()
-        bmode = None
+        bmode = camera = None
+        if "observation.camera" in hf.column_names:
+            camera = np.asarray(hf.select(idx.tolist()).with_format("numpy")["observation.camera"]
+                                ).astype(np.uint8)
         if has_bmode:
             imgs = hf.select(idx.tolist()).with_format("numpy")["observation.bmode"]
             arr = np.asarray(imgs)
@@ -236,8 +255,9 @@ def read_lerobot(root: Path, repo_id: str = "local/usintent") -> list[Episode]:
             session_id=str(scalar("session_id")[0]),
             day=str(scalar("day")[0]),
             operator_id=str(scalar("operator_id")[0]),
+            phantom_id=str(scalar("phantom_id")[0]),
             holds=holds[holds["episode_index"] == ep_idx].reset_index(drop=True),
-            bmode=bmode,
+            bmode=bmode, camera=camera,
             extras=extras,
         ))
     return episodes
@@ -299,7 +319,8 @@ def load_openh(root: Path, mapping: dict[str, Any], repo_id: str = "openh/local"
     from usintent.data.chunks import actions_from_poses
 
     m = {k: require(mapping, k) for k in ("pose_key", "pos_slice", "rot_slice", "rot_format",
-                                          "bmode_key", "wrench_key", "session_key", "day_key")}
+                                          "bmode_key", "wrench_key", "session_key", "day_key",
+                                          "phantom_id")}
     ds = LeRobotDataset(repo_id, root=Path(root))
     hf = ds.hf_dataset
     cols = [c for c in hf.column_names if c != m["bmode_key"]]
@@ -327,7 +348,7 @@ def load_openh(root: Path, mapping: dict[str, Any], repo_id: str = "openh/local"
             action=actions_from_poses(pose), wrench=wrench,
             mode=np.full(n, "SWEEP"), contact_cmd=np.full(n, "SWEEP"),
             station_index=np.full(n, -1, dtype=np.int64), hold_id=np.full(n, -1, dtype=np.int64),
-            session_id=session, day=day, operator_id="openh",
+            session_id=session, day=day, operator_id="openh", phantom_id=str(m["phantom_id"]),
             holds=pd.DataFrame(columns=HOLD_COLUMNS), bmode=bmode,
         ))
     return episodes

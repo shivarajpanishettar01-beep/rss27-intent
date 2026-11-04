@@ -26,6 +26,7 @@ from usintent.config import load, require
 from usintent.data.chunks import build_sampler, policy_target
 from usintent.data.loaders import load_dataset, load_openh
 from usintent.data.passthrough import passthrough_check
+from usintent.data.splits import assert_disjoint
 from usintent.paths import FIGURES
 from usintent.policies.evaluate import (
     align_predictions,
@@ -76,6 +77,7 @@ def main() -> None:
     train = build_sampler(_load(args.source, args.train_dataset, cfg, args.repo_id, 201),
                           args.source, cfg)
     ev = build_sampler(_load(args.source, args.eval_dataset, cfg, args.repo_id, 202), args.source, cfg)
+    assert_disjoint(train.episodes, ev.episodes)          # CLAUDE.md rule 5
     pt = passthrough_check(ev, max_chunks=20000)
     if args.source == "synthetic":
         rows = ev.index[ev.index["phase"] == "hold"]
@@ -84,7 +86,7 @@ def main() -> None:
                          ["HOLD"] * len(rows), {"model": "oracle-imitator-synthetic"})
     pred_rows, chunks, meta = load_predictions(args.predictions)
     rows, chunks = align_predictions(ev.index, pred_rows, chunks)
-    summ = hedging_summary(train, rows, chunks, thr, tau)
+    summ = hedging_summary(train, rows, chunks, thr, tau, m_hat=pred_rows["m_hat"].astype(str).tolist())
     name = str(meta.get("model", args.predictions.stem))
     prov = stamp(["data", "metrics"], args.source, predictions=str(args.predictions))
     payload = {"model": meta, "summary": summ, "passthrough": pt, "provenance": prov}
