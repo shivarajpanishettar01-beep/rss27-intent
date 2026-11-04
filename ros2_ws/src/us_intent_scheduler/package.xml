@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>us_intent_scheduler</name>
+  <version>0.1.0</version>
+  <description>Samples stations and hold durations, plays audio cues, publishes /protocol/mode_cue. SPEC section 12. M5.</description>
+  <maintainer email="anonymous@example.com">anonymous</maintainer>
+  <license>TODO</license>
+  <depend>rclpy</depend>
+  <depend>us_intent_msgs</depend>
+  <test_depend>pytest</test_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>

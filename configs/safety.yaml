@@ -1,0 +1,8 @@
+# Second safety layer (docs/SAFETY.md). NO DEFAULTS: motion code refuses to start on any null.
+max_contact_force_n: null
+max_tcp_speed_mps: null
+max_tcp_accel_mps2: null
+max_normal_displacement_m: null
+workspace_box_base_m: null    # [xmin, xmax, ymin, ymax, zmin, zmax]
+max_input_age_s: null
+watchdog_period_s: null

@@ -1,0 +1,4 @@
+departure_threshold_m: null   # zero-motion baseline + measured controller jitter
+tau_s: null                   # measured key-press-to-threshold time
+p_view: 0.8
+force_band_n: null            # [min, max] from rig limits and institutional rules

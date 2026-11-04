@@ -6,6 +6,7 @@ Project memory for Claude Code. Read this file and `docs/` before doing anything
 
 Code for the RSS 2027 paper **"When to Move Is Not in the Image: Intent Observability in Learned Robotic Ultrasound Scanning."** The paper argues that part of when a sonographer leaves a probe hold is invisible to the robot, so imitation-learned policies hedge. It tests this with a cued-hold protocol on a UR7e, GR00T-H and diffusion-policy observation arms, classical baselines, and a two-source **when-head**.
 
+- Folder/path/import contract: `docs/LAYOUT.md`
 - Full technical spec: `docs/SPEC.md`
 - Interfaces, topics, units, config schema: `docs/INTERFACES.md`
 - Build order and acceptance tests: `docs/BUILD_PLAN.md`
@@ -33,30 +34,19 @@ Code for the RSS 2027 paper **"When to Move Is Not in the Image: Intent Observab
 - Policies: NVIDIA Isaac-GR00T (GR00T-H fine-tuning), LeRobot Diffusion Policy.
 - Robot: ROS 2 (distro from RIG_FACTS), Universal Robots ROS 2 driver, user's `micrus` ROS 2 node for B-mode.
 
-## Repo layout (target)
+## Repo layout: already scaffolded, do not restructure
 
-```
-usintent/            python package (analysis, models, metrics)
-  theory/            closed-form predictions (port of reference/rss_predictions.py)
-  sim/               synthetic hold-world generator (ground truth for tests)
-  data/              LeRobot loaders, phase segmentation, splits, chunk sampler
-  metrics/           open-loop & closed-loop metrics
-  baselines/         B1-B6
-  leakage/           remaining-hold-time / hold-end classifier (H3a)
-  intervene/         training-data resampling sampler (H2 causal test)
-  whenhead/          survival head, image-adequacy features, commit rule (A7)
-  stats/             permutation tests, cluster bootstrap, seed plots
-  policies/          adapters for GR00T-H and Diffusion Policy (train/infer)
-ros2_ws/src/         ROS 2 packages (scheduler, teleop, recorder, policy server, control)
-configs/             YAML configs (arms, data, rig, safety); unknowns have no default
-scripts/             entry points: make_*.py (figures/tables), run_*.py
-tests/               pytest; synthetic-data tests mandatory
-reports/             milestone reports
-reference/           rss_predictions.py (do not edit)
-```
+The full folder tree, packaging, configs, ROS 2 package skeletons and stub modules already exist. **`docs/LAYOUT.md` is a contract**, enforced by `usintent/layout.py`.
+
+- Fill the stub files in place; keep every path and module name.
+- All paths come from `usintent/paths.py`; all configs go through `usintent/config.py`.
+- Absolute imports from the single package `usintent`; no `sys.path` hacks; scripts and ROS nodes stay thin and call `usintent`.
+- Run `python scripts/check_structure.py` before every commit; it must print OK. CI runs it too.
+- `usintent/theory/` and `usintent/policies/base.py` are implemented examples of the conventions (typed, documented, tested). Match their style.
 
 ## Working style
 
+- First command of every session: `pip install -e ".[dev]" && python scripts/check_structure.py && pytest -m "not slow and not lab"`. Fix any failure before new work.
 - Before coding a milestone, restate its acceptance tests from `docs/BUILD_PLAN.md`, then build to them.
 - When a spec detail is ambiguous, choose the simplest option, record it in `reports/Mx.md` under "Decisions", and continue. Stop only for safety questions or missing rig facts.
 - Prefer clear code over clever code. Docstrings state units and frames for every array.

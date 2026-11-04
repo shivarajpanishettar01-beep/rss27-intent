@@ -3,7 +3,8 @@
 How to use this with Claude Code (cloud sessions):
 
 1. Create an empty GitHub repo (e.g. `rss27-intent`) and copy this whole folder into it: `CLAUDE.md`, `docs/`, `prompts/`, `reference/`. Commit.
-2. Fill in what you know in `docs/RIG_FACTS.md` (at least the ROS 2 distro and the force/torque source). Leave the rest `unknown`.
+2. Check the skeleton locally (optional): `pip install -e ".[dev]" && python scripts/check_structure.py && pytest`. It should print OK and pass 5 tests.
+3. Fill in what you know in `docs/RIG_FACTS.md` (at least the ROS 2 distro and the force/torque source). Leave the rest `unknown`.
 3. Open a Claude Code cloud session on the repo and paste `prompts/00_kickoff.md`. Read its reply, answer its questions, then say "go".
 4. Run one milestone per session: paste `prompts/M0.md`, then `M1.md`, and so on. After each, review `reports/Mx.md` and the diff before merging.
 5. When a milestone needs the lab (`LAB_RUN_Mx.md`), run those commands yourself on the lab machine and paste the results into the next session.
@@ -15,6 +16,7 @@ What cloud sessions can't do: reach the robot, the lab PC or (usually) a GPU. Cl
 
 Files:
 - `CLAUDE.md`: project memory and hard rules (Claude Code reads it automatically)
+- `docs/LAYOUT.md`: folder, path and import contract (enforced by `scripts/check_structure.py`)
 - `docs/SPEC.md`: what every module computes
 - `docs/INTERFACES.md`: topics, dataset fields, config schema
 - `docs/BUILD_PLAN.md`: milestones, dates, acceptance tests

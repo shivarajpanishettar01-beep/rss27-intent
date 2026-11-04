@@ -1,0 +1,6 @@
+bin_width_s: null             # = policy period
+g_img_hidden: [32, 32]
+g_int: mlp
+coupling_threshold: null
+confidence_impl: karamalis    # karamalis | proxy
+commit_threshold: 0.5

@@ -1,0 +1,8 @@
+hold_distributions:
+  uniform: {a: 2.0, b: 10.0}
+  shifted_exp: {shift: 2.0, scale: 4.0}
+block_design: per_session_block
+stations_per_episode: {min: null, max: null}
+sweep_speeds_mps: null       # three levels
+tilt_twist_range_deg: null
+seed_logging: true
