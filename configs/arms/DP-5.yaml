@@ -4,5 +4,11 @@ inputs: [bmode, camera, bmode_history, mode_embedding]
 intent_aware: true
 uses_whenhead: false
 seeds: 3
-checkpoint: null          # base checkpoint (confirm GR00T-H N1.6 vs N1.7)
-schedule: null            # shared across arms; set once in M6
+checkpoint: null          # DP is trained from scratch (no pretrained backbone download)
+schedule:                 # shared by every arm (SPEC 10); null until the GPU budget is known
+  steps: null
+  batch_size: null
+  lr: null
+sampler_controls:         # inference settings evaluated for every arm x seed (SPEC 10)
+  deterministic_noise: [true, false]
+  integration_steps: [4, 16]

@@ -73,3 +73,14 @@ def output_dir(data_source: str, requested: Path | None, default: Path) -> Path:
                 raise ValueError(f"synthetic outputs may not be written under {forbidden}")
         return req
     return Path(requested) if requested is not None else default
+
+
+def data_hash(root: Path) -> str:
+    """sha256 over a LeRobot dataset's metadata files (info, episodes, stats, holds sidecar)."""
+    root = Path(root)
+    h = hashlib.sha256()
+    for f in sorted((root / "meta").rglob("*")):
+        if f.is_file():
+            h.update(f.relative_to(root).as_posix().encode())
+            h.update(f.read_bytes())
+    return h.hexdigest()[:16]
