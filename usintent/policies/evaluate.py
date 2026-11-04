@@ -331,3 +331,12 @@ def offline_eval(name: str, arm_id: str, seed: Any, setting: str, policy: Policy
     per.insert(1, "seed", seed)
     per.insert(2, "setting", setting)
     return row, per
+
+
+def intervention_prediction(p: float, horizon_s: float, tau_s: float) -> float:
+    """Predicted departure-like rate of a blind imitator trained with departure fraction p in
+    its hold chunks: p (H - tau) / H (threshold-corrected; exact when D >= H, as for both
+    protocol distributions with H = 1 s)."""
+    if not 0 <= tau_s <= horizon_s:
+        raise ValueError("need 0 <= tau <= H")
+    return p * (horizon_s - tau_s) / horizon_s

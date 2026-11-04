@@ -80,3 +80,18 @@ def test_leakage_on_threshold_segmentation() -> None:
     segs = {e.episode_index: segment_threshold(e, p) for e in eps}
     d = build_dataset(eps, 1.0, 0.5, 60.0, segmentations=segs)
     assert len(d.y) > 50 and 0.05 < d.y.mean() < 0.4
+
+
+def test_hedging_intervention_panel(tmp_path) -> None:
+    from usintent.policies.evaluate import intervention_prediction
+
+    assert intervention_prediction(0.2, 1.0, 0.25) == pytest.approx(0.15)
+    rows = tmp_path / "rows.json"
+    rows.write_text(json.dumps([{"arm": "DP-1", "p": p, "seed": s, "rate": 0.7 * p}
+                                for p in (0.08, 0.33) for s in range(3)]))
+    r = _run(str(SCRIPTS / "make_fig_hedging.py"), "--source", "synthetic", "--out", str(tmp_path),
+             "--thr", "0.002", "--tau", "0.3", "--intervention-rows", str(rows))
+    assert r.returncode == 0, r.stderr
+    payload = json.loads((tmp_path / "hedging_oracle-imitator-synthetic.json").read_text())
+    assert len(payload["intervention"]) == 6
+    assert payload["intervention"][0]["predicted"] == pytest.approx(0.08 * 0.7)

@@ -29,6 +29,7 @@ rss27-intent/
 │   ├── whenhead/   features confidence model commit           M7
 │   ├── stats/      tests
 │   ├── protocol/   scheduler teleop session recorder (logic for the M5 ROS nodes)   M5
+│   ├── closedloop/ trials (paired closed-loop trial runner, mock robot)   M10
 │   ├── control/    safety filter fault controller (logic for us_intent_control, SAFETY.md)   M9
 │   └── policies/   base (intent gating, implemented)  evaluate (open-loop harness, M3/M8)  server (M8)
 │                   gr00t_adapter  dp_adapter   M6

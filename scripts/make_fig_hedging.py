@@ -20,6 +20,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
 
 from usintent.config import load, require
 from usintent.data.chunks import build_sampler, policy_target
@@ -29,6 +30,7 @@ from usintent.paths import FIGURES
 from usintent.policies.evaluate import (
     align_predictions,
     hedging_summary,
+    intervention_prediction,
     load_predictions,
     save_predictions,
 )
@@ -56,6 +58,8 @@ def main() -> None:
     ap.add_argument("--out", type=Path)
     ap.add_argument("--thr", type=float, help="synthetic only")
     ap.add_argument("--tau", type=float, help="synthetic only")
+    ap.add_argument("--intervention-rows", type=Path,
+                    help="intervention_rows.json from run_offline_eval.py (H2 panel)")
     args = ap.parse_args()
     cfg = load("data")
     out = output_dir(args.source, args.out, FIGURES)
@@ -85,7 +89,14 @@ def main() -> None:
     prov = stamp(["data", "metrics"], args.source, predictions=str(args.predictions))
     payload = {"model": meta, "summary": summ, "passthrough": pt, "provenance": prov}
     (out / f"hedging_{name}.json").write_text(json.dumps(payload, indent=2, default=float))
-    fig, ax = plt.subplots(figsize=(4.2, 2.8))
+    interv = json.loads(args.intervention_rows.read_text()) if args.intervention_rows else []
+    if interv:
+        payload["intervention"] = [{**r, "predicted": intervention_prediction(
+            r["p"], summ["horizon_s"], tau)} for r in interv]
+        (out / f"hedging_{name}.json").write_text(json.dumps(payload, indent=2, default=float))
+    fig, axes = plt.subplots(1, 2 if interv else 1, figsize=(7.5 if interv else 4.2, 2.8),
+                             squeeze=False)
+    ax = axes[0, 0]
     labels = ["train departure\nfraction", "predicted\n" + r"$\bar\pi_\tau$", f"measured\n{name}"]
     vals = [summ["train_departure_fraction"], summ["pibar_tau_pred"], summ["measured_rate"]]
     ax.bar(range(3), vals, color=["#9aa", "#68a", "#c64"])
@@ -95,6 +106,16 @@ def main() -> None:
     ax.set_ylabel("hold chunks departure-like")
     ax.set_title(f"{args.source}  git {prov['git_hash'][:8]}", fontsize=7)
     ax.spines[["top", "right"]].set_visible(False)
+    if interv:
+        ax2 = axes[0, 1]
+        ps = np.array([r["p"] for r in interv])
+        ax2.scatter(ps, [r["rate"] for r in interv], s=10, label="runs (one point per seed)")
+        grid = np.linspace(0, ps.max() * 1.1, 20)
+        ax2.plot(grid, [intervention_prediction(g, summ["horizon_s"], tau) for g in grid], "k--",
+                 lw=1, label=r"$p\,(H-\tau)/H$")
+        ax2.set_xlabel("training departure fraction p")
+        ax2.legend(fontsize=6, frameon=False)
+        ax2.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()
     for ext in ("png", "pdf"):
         fig.savefig(out / f"hedging_{name}.{ext}", dpi=200)
