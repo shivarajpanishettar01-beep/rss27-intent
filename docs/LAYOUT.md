@@ -16,6 +16,7 @@ rss27-intent/
 │   └── arms/  A1 A2 A3 A5 A6 A7 DP-1 DP-5 (.yaml)
 ├── usintent/                       the only Python package (pip install -e .)
 │   ├── paths.py                    ALL filesystem paths come from here
+│   ├── provenance.py               git/config hash stamp for every make_* output
 │   ├── config.py                   load() and require(); raises MissingRigFact on null
 │   ├── layout.py                   the checker for this contract
 │   ├── theory/     distributions.py  predictions.py          (implemented: example)
