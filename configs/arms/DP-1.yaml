@@ -1,0 +1,8 @@
+arm_id: "DP-1"
+family: diffusion_policy
+inputs: [bmode, camera]
+intent_aware: false
+uses_whenhead: false
+seeds: 3
+checkpoint: null          # base checkpoint (confirm GR00T-H N1.6 vs N1.7)
+schedule: null            # shared across arms; set once in M6

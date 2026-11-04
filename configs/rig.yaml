@@ -1,0 +1,17 @@
+# Rig facts. Every null must be measured and recorded in docs/RIG_FACTS.md first.
+ros_distro: null
+topics:
+  bmode: null
+  bmode_type: null
+  wrench: null
+  wrench_frame: null
+  camera: null          # leave null if no probe camera
+  tcp_pose: null
+rates_hz:
+  bmode: null
+  wrench: null
+  policy: null
+latency_s:
+  image_to_command: null
+tool:
+  tcp_offset: null      # [x, y, z, rx, ry, rz] from calibration

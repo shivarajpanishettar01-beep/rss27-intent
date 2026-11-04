@@ -1,0 +1,17 @@
+__pycache__/
+*.egg-info/
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+# large or private artefacts: never committed
+data/*
+!data/.gitkeep
+results/*
+!results/.gitkeep
+*.mcap
+*.db3
+checkpoints/
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/

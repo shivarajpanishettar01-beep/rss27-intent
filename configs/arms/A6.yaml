@@ -1,0 +1,8 @@
+arm_id: "A6"
+family: gr00t_h
+inputs: [bmode, camera, proprio, time_since_motion]
+intent_aware: false
+uses_whenhead: false
+seeds: 5
+checkpoint: null          # base checkpoint (confirm GR00T-H N1.6 vs N1.7)
+schedule: null            # shared across arms; set once in M6

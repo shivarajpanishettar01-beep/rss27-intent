@@ -1,0 +1,10 @@
+chunk_horizon_s: 1.0
+history_frames_k: 3
+segmentation:
+  v_hold_mps: null
+  t_hold_min_s: null
+  t_onset_s: null
+  transition_window_s: 0.5
+splits:
+  by: [session_id, day]
+  assignment_file: null    # path relative to configs/, created when data exists

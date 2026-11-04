@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "usintent"
+version = "0.1.0"
+description = "Intent observability in learned robotic ultrasound scanning (RSS 2027 code)"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "scipy>=1.10", "pandas>=2.0", "pyyaml>=6.0", "matplotlib>=3.7"]
+
+[project.optional-dependencies]
+ml = ["torch>=2.1", "scikit-learn>=1.3"]
+dev = ["pytest>=7.4", "ruff>=0.4", "mypy>=1.8", "types-PyYAML"]
+
+[tool.setuptools.packages.find]
+include = ["usintent*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: long Monte-Carlo or training tests", "lab: needs lab machine, GPU or private data"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+[[tool.mypy.overrides]]
+module = ["usintent.theory.*", "usintent.metrics.*"]
+strict = true
