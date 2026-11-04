@@ -29,14 +29,14 @@
   },
   "horizon_s": 1.0,
   "provenance": {
-    "git_hash": "4073b575ee11f6554ee1295b04fe3d7dc4fa2f74",
-    "config_hash": "18174d5f92eaaad1",
+    "git_hash": "c79080c991ff089516937946d45f2148c18ce46b",
+    "config_hash": "ca79437f319e86bf",
     "configs": [
       "data",
       "protocol"
     ],
     "data_source": "theory",
-    "created_utc": "2026-11-04T08:38:35+00:00",
+    "created_utc": "2026-11-04T12:29:22+00:00",
     "n_mc": 2000000,
     "seed": 0
   }
