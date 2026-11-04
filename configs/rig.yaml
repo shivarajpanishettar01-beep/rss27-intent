@@ -15,3 +15,7 @@ latency_s:
   image_to_command: null
 tool:
   tcp_offset: null      # [x, y, z, rx, ry, rz] from calibration
+calibration:
+  speckle_sigma_m: null     # B5: elevational speckle correlation length (m), calibrated on the rig
+  speckle_rho0: null        # B5: zero-motion frame-to-frame correlation (noise floor)
+  pixel_spacing_m: null     # probe-to-image calibration: lateral metres per pixel

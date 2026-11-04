@@ -48,7 +48,7 @@ class HoldWorldConfig:
     hold_dist: HoldDistribution = field(default_factory=lambda: Uniform(2.0, 10.0))
     distribution_name: str = "uniform"
     n_stations: tuple[int, int] = (3, 6)             # inclusive range of holds per episode
-    station_spacing_m: float = 0.02
+    station_spacing_m: float = 0.05
     speeds_mps: tuple[float, ...] = (0.01, 0.02, 0.03)
     t_acc_s: float = 0.5
     fps: float = 30.0

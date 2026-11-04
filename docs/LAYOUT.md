@@ -28,7 +28,8 @@ rss27-intent/
 │   ├── intervene/  sampler                                    M6
 │   ├── whenhead/   features confidence model commit           M7
 │   ├── stats/      tests
-│   └── policies/   base (intent gating, implemented)  gr00t_adapter  dp_adapter   M6
+│   └── policies/   base (intent gating, implemented)  evaluate (open-loop harness, M3/M8)
+│                   gr00t_adapter  dp_adapter   M6
 ├── ros2_ws/src/                    ROS 2 packages (colcon build from ros2_ws/)
 │   ├── us_intent_msgs/             ament_cmake; msg/ModeEvent SessionInfo ActionChunk FilterEvent
 │   ├── us_intent_scheduler/        ament_python; entry point scheduler_node      M5

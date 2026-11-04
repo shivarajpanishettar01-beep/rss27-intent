@@ -211,12 +211,16 @@ class ChunkSampler:
         return stacked[[pos[k] for k in rows.index]]
 
     def history(self, episode_index: int, start: int) -> dict[str, NDArray[np.float64]]:
-        """Observation history of ``history_k`` steps ending at ``start`` (clamped at 0)."""
+        """Observation history of ``history_k`` steps ending at ``start`` (clamped at 0).
+
+        Never contains the scheduler mode: intent reaches a policy only through the explicit
+        ``mode`` argument of ``Policy.predict`` (intent gating, policies/base.py).
+        """
         ep = self._eps[episode_index]
         idx = np.clip(np.arange(start - self.history_k + 1, start + 1), 0, None)
         out: dict[str, NDArray[np.float64]] = {
             "state": ep.state[idx], "wrench": ep.wrench[idx], "time": ep.time[idx],
-            "mode": ep.mode[idx],
+            "dt": np.array([ep.dt]),
         }
         if ep.bmode is not None:
             out["bmode"] = ep.bmode[idx]

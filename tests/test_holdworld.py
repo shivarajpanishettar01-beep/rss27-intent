@@ -81,7 +81,7 @@ def test_departure_tau_matches_profile() -> None:
     for v in (0.01, 0.02, 0.03):
         for thr in (0.0005, 0.002, 0.006):
             tau = departure_tau(thr, v, 0.5)
-            x, _ = sweep_profile(np.array([tau - 1e-6, tau + 1e-6]), 0.02, v, 0.5)
+            x, _ = sweep_profile(np.array([tau - 1e-6, tau + 1e-6]), 0.05, v, 0.5)
             assert x[0] < thr < x[1]
 
 

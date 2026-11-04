@@ -168,3 +168,22 @@ def sensitivity(episodes: list[Episode], base: SegParams,
                     "departure_fraction": dep / tot if tot else float("nan"),
                     "f1_vs_base": hold_f1(mask, ref)})
     return out
+
+
+def causal_elapsed(ep: Episode, v_hold_mps: float) -> NDArray[np.float64]:
+    """Elapsed hold time e (s) from proprioception only, causally: time since the TCP speed
+    (backward difference) last fell below ``v_hold_mps``; NaN while moving. SPEC section 9."""
+    n = len(ep)
+    e = np.full(n, np.nan)
+    if n == 0:
+        return e
+    v = np.zeros(n)
+    v[1:] = np.linalg.norm(np.diff(ep.state[:, :3], axis=0), axis=1) / np.diff(ep.time)
+    since = None
+    for k in range(n):
+        if v[k] < v_hold_mps:
+            since = ep.time[k] if since is None else since
+            e[k] = ep.time[k] - since
+        else:
+            since = None
+    return e
