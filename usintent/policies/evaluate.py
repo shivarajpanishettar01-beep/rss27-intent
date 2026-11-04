@@ -254,3 +254,80 @@ def hedging_summary(train: ChunkSampler, eval_rows: pd.DataFrame, pred: NDArray[
         "n_eval_hold_chunks": int(in_hold.sum()), "n_train_holds": len(durations),
         "thr_m": thr_m, "tau_s": tau_s, "horizon_s": horizon,
     }
+
+
+# ---------------------------------------------------------------------------------------------
+# Offline evaluation over arms x seeds x sampler settings (M8)
+# ---------------------------------------------------------------------------------------------
+
+
+def load_policy(arm_id: str, checkpoint: Any, deterministic_noise: bool = True,
+                integration_steps: int | None = None) -> Policy:
+    """Load a trained arm. DP: ``model.pt`` written by scripts/run_train_arm.py. GR00T: blocked."""
+    from pathlib import Path
+
+    from usintent.config import load
+
+    arm = load(f"arms/{arm_id}")
+    if arm["family"] != "diffusion_policy":
+        from usintent.policies.gr00t_adapter import GR00TPolicy
+
+        return GR00TPolicy(arm_id, str(checkpoint))       # raises: blocked (no source)
+    import torch
+
+    from usintent.policies.dp_adapter import DPArmSpec, DPPolicy, MinMax
+
+    ck = torch.load(Path(checkpoint), map_location="cpu", weights_only=False)
+    spec_d = dict(ck["spec"])
+    spec_d["image_shape"] = tuple(spec_d["image_shape"])
+    spec_d["down_dims"] = tuple(spec_d["down_dims"])
+    if integration_steps is not None:
+        spec_d["num_inference_steps"] = integration_steps
+    pol = DPPolicy(DPArmSpec(**spec_d), norm=MinMax(np.asarray(ck["norm_lo"]), np.asarray(ck["norm_hi"])))
+    pol.model.load_state_dict(ck["state_dict"])
+    pol.deterministic_noise = deterministic_noise
+    return pol
+
+
+def eval_rows(policy: Policy, ctx: EvalContext, rows: pd.DataFrame, thr_m: float) -> pd.DataFrame:
+    """Per-chunk predictions summarised: departure-like flag, e, phase, exit type, errors."""
+    pred, m_hat = predict_chunks(policy, ctx, rows)
+    gt = policy_target(ctx.sampler.chunks6(rows))
+    out = rows[["episode_index", "start", "phase", "e", "exit_type", "contains_departure",
+                "in_transition", "session_id"]].copy()
+    out["departure_like"] = ol.departure_like(pred, thr_m)
+    out["err_trans_m"] = ol.chunk_error_trans(pred, gt)
+    out["max_disp_m"] = ol.max_displacement(pred)
+    out["m_hat"] = m_hat
+    dist = {e.episode_index: (str(e.holds["distribution"].iloc[0]) if len(e.holds) else "")
+            for e in ctx.sampler.episodes}
+    out["distribution"] = out["episode_index"].map(dist)
+    return out
+
+
+def offline_eval(name: str, arm_id: str, seed: Any, setting: str, policy: Policy,
+                 ctx: EvalContext, rows: pd.DataFrame, thr_m: float, timing: bool = True
+                 ) -> tuple[dict[str, Any], pd.DataFrame]:
+    """One results-table row (+ per-chunk rows). The passthrough check runs first (rule 4)."""
+    pt = passthrough_check(ctx.sampler, max_chunks=5000)
+    per = eval_rows(policy, ctx, rows, thr_m)
+    hold = per["phase"] == "hold"
+    row: dict[str, Any] = {
+        "name": name, "arm_id": arm_id, "seed": seed, "setting": setting,
+        "passthrough_max_err_m": pt["max_trans_err_m"], "n_chunks": len(per),
+        "chunk_error_trans_m": float(per["err_trans_m"].mean()),
+        "hold_drift_m": float(per.loc[hold & ~per["contains_departure"], "max_disp_m"].mean()),
+        "departure_like_rate": float(per.loc[hold, "departure_like"].mean()),
+        "gt_departure_fraction": float(per.loc[hold, "contains_departure"].mean()),
+    }
+    for et in ("SWEEP", "LIFT"):
+        m = hold & (per["exit_type"] == et)
+        row[f"departure_like_rate_{et}"] = float(per.loc[m, "departure_like"].mean()) if m.any() else np.nan
+    if timing:
+        t = hold_timing(policy, ctx, thr_m)
+        row["timing_error_s"] = float(t["err"].mean())
+        row["timing_n_holds"] = len(t)
+    per.insert(0, "name", name)
+    per.insert(1, "seed", seed)
+    per.insert(2, "setting", setting)
+    return row, per

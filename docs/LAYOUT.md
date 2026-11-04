@@ -29,7 +29,7 @@ rss27-intent/
 │   ├── whenhead/   features confidence model commit           M7
 │   ├── stats/      tests
 │   ├── protocol/   scheduler teleop session recorder (logic for the M5 ROS nodes)   M5
-│   └── policies/   base (intent gating, implemented)  evaluate (open-loop harness, M3/M8)
+│   └── policies/   base (intent gating, implemented)  evaluate (open-loop harness, M3/M8)  server (M8)
 │                   gr00t_adapter  dp_adapter   M6
 ├── ros2_ws/src/                    ROS 2 packages (colcon build from ros2_ws/)
 │   ├── us_intent_msgs/             ament_cmake; msg/ModeEvent SessionInfo ActionChunk FilterEvent
