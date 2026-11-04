@@ -9,9 +9,15 @@ Conventions (docs/INTERFACES.md, usintent.data.loaders):
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
+import pandas as pd
 from numpy.typing import NDArray
 from scipy.spatial.transform import Rotation
+
+from usintent.data.loaders import Episode
+from usintent.data.segmentation import Segmentation, segment_cued
 
 POLICY_DIMS = (0, 1, 3, 4, 5)   # x, y, rx, ry, rz of a 6-D displacement
 
@@ -98,3 +104,127 @@ def chunks_from_poses(pose: NDArray[np.float64], starts: NDArray[np.int64], n: i
     out[:, :3] = ri.inv().apply(dp)
     out[:, 3:] = (ri.inv() * rj).as_rotvec()
     return out.reshape(len(starts), n, 6)
+
+
+# ---------------------------------------------------------------------------------------------
+# Chunk sampler (SPEC section 4): chunk starts uniform in time, with per-chunk metadata.
+# ---------------------------------------------------------------------------------------------
+
+
+
+def policy_target(chunk6: NDArray[np.float64]) -> NDArray[np.float64]:
+    """(..., n, 6) composed displacement -> (..., n, 5) policy target [x, y, rx, ry, rz]."""
+    return np.asarray(chunk6[..., list(POLICY_DIMS)], dtype=np.float64)
+
+
+def _exit_type_from_motion(ep: Episode, end: int, n: int) -> str:
+    """Exit type of a segmented hold without labels: LIFT if probe-axis motion dominates."""
+    j = min(end + n, len(ep) - 1)
+    ch = chunk_from_poses(ep.state[:, :6], max(end - 1, 0), max(j - end + 1, 1))
+    tang = float(np.linalg.norm(ch[-1, :2]))
+    axial = float(abs(ch[-1, 2]))
+    return "LIFT" if axial > tang else "SWEEP"
+
+
+@dataclass
+class ChunkSampler:
+    """All valid chunk starts of a set of episodes with metadata; sampling uniform in time.
+
+    ``segmentations`` maps episode_index -> Segmentation; default: cued segmentation from logs.
+    Chunks are built from the dataset actions (integrated once per episode), i.e. through the
+    same path the training code uses, and expressed in the tool frame at the chunk start.
+    """
+
+    episodes: list[Episode]
+    horizon_s: float
+    history_k: int = 1
+    segmentations: dict[int, Segmentation] | None = None
+    transition_window_s: float = 0.5
+
+    def __post_init__(self) -> None:
+        self._eps = {e.episode_index: e for e in self.episodes}
+        if len(self._eps) != len(self.episodes):
+            raise ValueError("duplicate episode_index")
+        if self.segmentations is None:
+            self.segmentations = {e.episode_index: segment_cued(e, self.transition_window_s)
+                                  for e in self.episodes}
+        self._poses = {e.episode_index: integrate_actions(e.state[0, :6], e.action)
+                       for e in self.episodes}
+        self.index = self._build_index()
+
+    def n_steps(self, ep: Episode) -> int:
+        return round(self.horizon_s * ep.fps)
+
+    def _build_index(self) -> pd.DataFrame:
+        assert self.segmentations is not None
+        frames = []
+        for ep in self.episodes:
+            n = self.n_steps(ep)
+            seg = self.segmentations[ep.episode_index]
+            starts = np.arange(0, len(ep) - n)
+            df = pd.DataFrame({
+                "episode_index": ep.episode_index, "start": starts, "t": ep.time[starts],
+                "phase": seg.phase[starts], "in_transition": seg.in_transition[starts],
+                "e": seg.elapsed[starts], "seg_hold": seg.hold_index[starts],
+                "session_id": ep.session_id, "day": ep.day,
+            })
+            end_t = np.full(len(starts), np.nan)
+            exit_type = np.full(len(starts), "", dtype="<U6")
+            backtrack = np.zeros(len(starts), dtype=bool)
+            hold_id = np.full(len(starts), -1, dtype=np.int64)
+            labelled = seg.source == "cued"
+            for j, (a, b) in enumerate(seg.holds):
+                m = df["seg_hold"].to_numpy() == j
+                if labelled:   # cued: end = key time, exit type from the sidecar
+                    row = ep.holds[ep.holds["hold_id"] == ep.hold_id[a]].iloc[0]
+                    end_t[m] = row["key_time"]
+                    exit_type[m] = row["exit_type"]
+                    backtrack[m] = bool(row["backtrack"])
+                    hold_id[m] = int(row["hold_id"])
+                else:          # segmented: end = first moving step
+                    end_t[m] = ep.time[b] if b < len(ep) else np.nan
+                    exit_type[m] = _exit_type_from_motion(ep, b, n)
+            df["hold_end_t"] = end_t
+            df["exit_type"] = exit_type
+            df["backtrack"] = backtrack
+            df["hold_id"] = hold_id
+            # NaN end (censored) compares False: no departure observed in the chunk
+            df["contains_departure"] = (df["phase"] == "hold") & (end_t < df["t"] + self.horizon_s)
+            frames.append(df)
+        return pd.concat(frames, ignore_index=True)
+
+    def chunk6(self, episode_index: int, start: int) -> NDArray[np.float64]:
+        """(n, 6) composed displacement for one chunk, built from dataset actions."""
+        ep = self._eps[episode_index]
+        return chunks_from_poses(self._poses[episode_index], np.array([start]), self.n_steps(ep))[0]
+
+    def chunks6(self, rows: pd.DataFrame) -> NDArray[np.float64]:
+        """Stack of (len(rows), n, 6) chunks for index rows (any order)."""
+        out = []
+        for ep_idx, grp in rows.groupby("episode_index", sort=False):
+            ep = self._eps[int(ep_idx)]
+            out.append((grp.index.to_numpy(), chunks_from_poses(
+                self._poses[int(ep_idx)], grp["start"].to_numpy(), self.n_steps(ep))))
+        order = np.concatenate([o for o, _ in out])
+        stacked = np.concatenate([c for _, c in out])
+        pos = {k: i for i, k in enumerate(order)}
+        return stacked[[pos[k] for k in rows.index]]
+
+    def history(self, episode_index: int, start: int) -> dict[str, NDArray[np.float64]]:
+        """Observation history of ``history_k`` steps ending at ``start`` (clamped at 0)."""
+        ep = self._eps[episode_index]
+        idx = np.clip(np.arange(start - self.history_k + 1, start + 1), 0, None)
+        out: dict[str, NDArray[np.float64]] = {
+            "state": ep.state[idx], "wrench": ep.wrench[idx], "time": ep.time[idx],
+            "mode": ep.mode[idx],
+        }
+        if ep.bmode is not None:
+            out["bmode"] = ep.bmode[idx]
+        return out
+
+    def sample(self, n: int, rng: np.random.Generator,
+               weights: NDArray[np.float64] | None = None) -> pd.DataFrame:
+        """Draw n chunk-start rows; uniform in time unless ``weights`` (len(index)) is given."""
+        p = None if weights is None else weights / weights.sum()
+        pick = rng.choice(len(self.index), size=n, replace=True, p=p)
+        return self.index.iloc[pick]

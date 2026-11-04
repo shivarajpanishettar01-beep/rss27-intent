@@ -241,3 +241,93 @@ def read_lerobot(root: Path, repo_id: str = "local/usintent") -> list[Episode]:
             extras=extras,
         ))
     return episodes
+
+
+# ---------------------------------------------------------------------------------------------
+# Dataset inventory and Open-H mapping
+# ---------------------------------------------------------------------------------------------
+
+
+def dataset_info(root: Path) -> dict[str, Any]:
+    """LeRobot v3.0 ``meta/info.json`` summary: codebase_version, fps, totals, feature names."""
+    info = json.loads((Path(root) / "meta" / "info.json").read_text())
+    return {
+        "codebase_version": info.get("codebase_version"),
+        "fps": info.get("fps"),
+        "total_episodes": info.get("total_episodes"),
+        "total_frames": info.get("total_frames"),
+        "robot_type": info.get("robot_type"),
+        "features": sorted(info.get("features", {})),
+    }
+
+
+def load_dataset(root: Path, repo_id: str = "local/usintent") -> list[Episode]:
+    """Load one of our datasets (synthetic, cued, or converted)."""
+    return read_lerobot(Path(root), repo_id)
+
+
+def _rot_to_rotvec(rot: NDArray[np.float64], fmt: str) -> NDArray[np.float64]:
+    from scipy.spatial.transform import Rotation
+
+    if fmt == "rotvec":
+        return rot
+    if fmt == "quat_xyzw":
+        return np.asarray(Rotation.from_quat(rot).as_rotvec(), dtype=np.float64)
+    if fmt == "quat_wxyz":
+        return np.asarray(Rotation.from_quat(rot[:, [1, 2, 3, 0]]).as_rotvec(), dtype=np.float64)
+    if fmt.startswith("euler_"):
+        return np.asarray(Rotation.from_euler(fmt[6:], rot).as_rotvec(), dtype=np.float64)
+    raise ValueError(f"unknown rotation format {fmt!r}")
+
+
+def load_openh(root: Path, mapping: dict[str, Any], repo_id: str = "openh/local") -> list[Episode]:
+    """Map an Open-H LeRobot dataset onto :class:`Episode`.
+
+    ``mapping`` is ``configs/data.yaml: openh`` (every key must be filled after inspecting the
+    downloaded dataset's ``meta/info.json``; nulls raise MissingRigFact):
+      pose_key, pos_slice [i0, i1], rot_slice [i0, i1], rot_format (rotvec | quat_xyzw |
+      quat_wxyz | euler_<axes>), bmode_key, wrench_key (or "none"), session_key (or "episode"),
+      day_key (or "none").
+    Per-step actions are derived from the mapped TCP poses (same rule as our recorder converter),
+    so the passthrough check exercises our decode path on real kinematics. Modes are unknown
+    (Open-H has no cue/key logs): mode = contact_cmd = "SWEEP", hold_id = -1; use
+    threshold segmentation.
+    """
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+    from usintent.config import require
+    from usintent.data.chunks import actions_from_poses
+
+    m = {k: require(mapping, k) for k in ("pose_key", "pos_slice", "rot_slice", "rot_format",
+                                          "bmode_key", "wrench_key", "session_key", "day_key")}
+    ds = LeRobotDataset(repo_id, root=Path(root))
+    hf = ds.hf_dataset
+    cols = [c for c in hf.column_names if c != m["bmode_key"]]
+    table = hf.select_columns(cols).to_pandas()
+    episodes = []
+    for ep_idx, rows in table.groupby("episode_index", sort=True):
+        raw = np.asarray(_col(rows, m["pose_key"]), dtype=np.float64)
+        pose = np.zeros((len(rows), 6))
+        pose[:, :3] = raw[:, slice(*m["pos_slice"])]
+        pose[:, 3:] = _rot_to_rotvec(raw[:, slice(*m["rot_slice"])], m["rot_format"])
+        state = np.zeros((len(rows), STATE_DIM))
+        state[:, :6] = pose
+        wrench = (np.zeros((len(rows), 6)) if m["wrench_key"] == "none"
+                  else np.asarray(_col(rows, m["wrench_key"]), dtype=np.float64))
+        imgs = np.asarray(hf.select(rows.index.tolist()).with_format("numpy")[m["bmode_key"]])
+        bmode = imgs.mean(axis=-1).round().astype(np.uint8) if imgs.ndim == 4 else imgs
+        session = (f"openh-ep{ep_idx}" if m["session_key"] == "episode"
+                   else str(np.asarray(_col(rows, m["session_key"])).ravel()[0]))
+        day = ("unknown" if m["day_key"] == "none"
+               else str(np.asarray(_col(rows, m["day_key"])).ravel()[0]))
+        t = rows["timestamp"].to_numpy(dtype=np.float64)
+        n = len(rows)
+        episodes.append(Episode(
+            episode_index=int(ep_idx), fps=float(ds.meta.fps), time=t, state=state,
+            action=actions_from_poses(pose), wrench=wrench,
+            mode=np.full(n, "SWEEP"), contact_cmd=np.full(n, "SWEEP"),
+            station_index=np.full(n, -1, dtype=np.int64), hold_id=np.full(n, -1, dtype=np.int64),
+            session_id=session, day=day, operator_id="openh",
+            holds=pd.DataFrame(columns=HOLD_COLUMNS), bmode=bmode,
+        ))
+    return episodes

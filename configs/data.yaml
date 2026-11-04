@@ -5,6 +5,18 @@ segmentation:
   t_hold_min_s: null
   t_onset_s: null
   transition_window_s: 0.5
+  contact_force_n: null   # |Fz| contact threshold; leave null to use the motion proxy
 splits:
   by: [session_id, day]
   assignment_file: null    # path relative to configs/, created when data exists
+openh:
+  # Fill after inspecting the downloaded dataset's meta/info.json (scripts/LAB_RUN_M4.md).
+  repo_ids: null          # list of Open-H robotic-ultrasound repo ids / local folders
+  pose_key: null          # feature holding the TCP pose
+  pos_slice: null         # [i0, i1] of x, y, z in pose_key
+  rot_slice: null         # [i0, i1] of the orientation
+  rot_format: null        # rotvec | quat_xyzw | quat_wxyz | euler_<axes>
+  bmode_key: null
+  wrench_key: null        # or "none"
+  session_key: null       # or "episode" if Open-H has no session metadata (needs human OK)
+  day_key: null           # or "none"
