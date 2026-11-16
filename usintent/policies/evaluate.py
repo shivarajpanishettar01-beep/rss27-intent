@@ -269,8 +269,10 @@ def hedging_summary(train: ChunkSampler, eval_rows: pd.DataFrame, pred: NDArray[
 
 def load_policy(arm_id: str, checkpoint: Any, deterministic_noise: bool = True,
                 integration_steps: int | None = None) -> Policy:
-    """Load a trained arm. DP: ``model.pt`` written by scripts/run_train_arm.py. GR00T: a
-    checkpoint directory under the run's output dir, next to ``usintent_spec.json``."""
+    """Load a trained arm. DP / ACT: ``model.pt`` written by scripts/run_train_arm.py. GR00T and
+    SmolVLA / pi0.5: a checkpoint directory under the run's output dir, below
+    ``usintent_spec.json``. US-VLA: ``{"run_dir": ..., "server": "host:port"}`` of a running
+    ``usvla_run.py serve`` for that run (its metadata is checked against run.json)."""
     import json
     from pathlib import Path
 
@@ -288,6 +290,28 @@ def load_policy(arm_id: str, checkpoint: Any, deterministic_noise: bool = True,
                             tuple((str(a), int(b)) for a, b in d["state_keys"]), d["language_mode"])
         return GR00TPolicy(arm_id, spec, str(ck), deterministic_noise=deterministic_noise,
                            integration_steps=integration_steps)
+    if arm["family"] == "usvla":
+        from usintent.policies.usvla_adapter import USVLAArmSpec, USVLAPolicy
+
+        run_dir = Path(checkpoint["run_dir"])
+        run = json.loads((run_dir / "run.json").read_text())
+        host, port = str(checkpoint["server"]).rsplit(":", 1)
+        return USVLAPolicy(USVLAArmSpec(**json.loads((run_dir / "usintent_spec.json").read_text())),
+                           host, int(port),
+                           expected={"arm_id": run["arm"], "seed": run["seed"], "run": str(run_dir)},
+                           seed=int(run["seed"]), deterministic_noise=deterministic_noise,
+                           integration_steps=integration_steps)
+    if arm["family"] in ("smolvla", "pi05"):
+        from usintent.config import require
+        from usintent.policies.lerobot_vla_adapter import LeRobotVLAPolicy, VLAArmSpec
+
+        ck = Path(checkpoint)
+        spec_file = next(p / "usintent_spec.json" for p in (ck, *ck.parents)
+                         if (p / "usintent_spec.json").is_file())
+        vspec = VLAArmSpec(**json.loads(spec_file.read_text()))
+        return LeRobotVLAPolicy(vspec, ck, dict(require(arm, "rename_map")),
+                                deterministic_noise=deterministic_noise,
+                                integration_steps=integration_steps)
     import torch
 
     from usintent.policies.dp_adapter import DPArmSpec, DPPolicy, MinMax
@@ -295,6 +319,15 @@ def load_policy(arm_id: str, checkpoint: Any, deterministic_noise: bool = True,
     ck = torch.load(Path(checkpoint), map_location="cpu", weights_only=False)
     spec_d = dict(ck["spec"])
     spec_d["image_shape"] = tuple(spec_d["image_shape"])
+    if arm["family"] == "act":
+        from usintent.policies.act_adapter import ACTArmSpec, ACTPolicy
+
+        if spec_d.get("camera_shape") is not None:
+            spec_d["camera_shape"] = tuple(spec_d["camera_shape"])
+        act = ACTPolicy(ACTArmSpec(**spec_d),
+                        norm=MinMax(np.asarray(ck["norm_lo"]), np.asarray(ck["norm_hi"])))
+        act.model.load_state_dict(ck["state_dict"])
+        return act                       # deterministic by construction (zero VAE latent)
     spec_d["down_dims"] = tuple(spec_d["down_dims"])
     if integration_steps is not None:
         spec_d["num_inference_steps"] = integration_steps

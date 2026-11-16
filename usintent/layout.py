@@ -30,7 +30,7 @@ SUBPACKAGES = ["theory", "sim", "data", "metrics", "baselines", "leakage", "inte
                "whenhead", "stats", "policies", "protocol", "control", "closedloop"]
 ROS_PACKAGES = ["us_intent_msgs", "us_intent_scheduler", "us_intent_teleop", "us_intent_recorder",
                 "us_intent_policy_server", "us_intent_control"]
-ARMS = ["A1", "A2", "A3", "A5", "A6", "A7", "DP-1", "DP-5"]
+ARMS = ["A1", "A2", "A3", "A5", "A6", "A7", "DP-1", "DP-5", "ACT-1", "ACT-5", "SmolVLA-1", "PI05-1", "USVLA-1"]
 SAFETY_KEYS = ["max_contact_force_n", "max_tcp_speed_mps", "max_tcp_accel_mps2",
                "max_normal_displacement_m", "workspace_box_base_m", "max_input_age_s",
                "watchdog_period_s"]
@@ -79,7 +79,7 @@ def _configs() -> list[str]:
         cfg = yaml.safe_load(p.read_text())
         if cfg.get("arm_id") != a:
             out.append(f"arm config {a}: arm_id is {cfg.get('arm_id')!r}")
-        if a not in ("A5", "DP-5") and cfg.get("intent_aware"):
+        if a not in ("A5", "DP-5", "ACT-5") and cfg.get("intent_aware"):
             out.append(f"arm {a} must be intent-blind")
     safety = yaml.safe_load((CONFIGS / "safety.yaml").read_text()) or {}
     for k in SAFETY_KEYS:

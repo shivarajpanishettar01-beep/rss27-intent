@@ -51,6 +51,8 @@ def main() -> None:
     ap.add_argument("--synthetic", action="store_true")
     ap.add_argument("--out", type=Path)
     ap.add_argument("--chunk-stride", type=int, default=3)
+    ap.add_argument("--usvla-server", default=None,
+                    help="host:port of `usvla_run.py serve` for the USVLA-1 run being scored")
     args = ap.parse_args()
     data = load("data")
     source = "synthetic" if args.synthetic else "cued"
@@ -95,6 +97,18 @@ def main() -> None:
             if not ckpts:
                 raise SystemExit(f"{run_dir}: no GR00T checkpoint-* directory")
             ckpt = ckpts[-1]
+        elif run.get("family") in ("smolvla", "pi05"):
+            from usintent.policies.lerobot_vla_adapter import checkpoint_dir, decode_passthrough
+
+            decode_passthrough(te_eps, n)                   # VLA action path, rule 4
+            ckpt = checkpoint_dir(run_dir)
+        elif run.get("family") == "usvla":
+            from usintent.policies.usvla_adapter import decode_passthrough as usvla_passthrough
+
+            if args.usvla_server is None:
+                raise SystemExit("USVLA-1 runs need --usvla-server (one served run at a time)")
+            usvla_passthrough(te_eps, n)                    # US-VLA action path, rule 4
+            ckpt = {"run_dir": run_dir, "server": args.usvla_server}
         for det in cfg["sampler_controls"]["deterministic_noise"]:
             for steps in cfg["sampler_controls"]["integration_steps"]:
                 pol = load_policy(run["arm"], ckpt, det, steps)

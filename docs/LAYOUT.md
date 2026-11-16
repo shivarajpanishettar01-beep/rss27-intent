@@ -13,7 +13,7 @@ rss27-intent/
 ├── reference/rss_predictions.py    paper numbers (read-only)
 ├── configs/                        all YAML; unknown rig facts are null
 │   ├── rig.yaml  safety.yaml  data.yaml  protocol.yaml  metrics.yaml  whenhead.yaml  control.yaml
-│   └── arms/  A1 A2 A3 A5 A6 A7 DP-1 DP-5 (.yaml)
+│   └── arms/  A1 A2 A3 A5 A6 A7 DP-1 DP-5 ACT-1 ACT-5 SmolVLA-1 PI05-1 USVLA-1 (.yaml)
 ├── usintent/                       the only Python package (pip install -e .)
 │   ├── paths.py                    ALL filesystem paths come from here
 │   ├── provenance.py               git/config hash stamp for every make_* output
@@ -32,7 +32,7 @@ rss27-intent/
 │   ├── closedloop/ trials (paired closed-loop trial runner, mock robot)   M10
 │   ├── control/    safety filter fault controller (logic for us_intent_control, SAFETY.md)   M9
 │   └── policies/   base (intent gating, implemented)  evaluate (open-loop harness, M3/M8)  server (M8)
-│                   gr00t_adapter  dp_adapter   M6
+│                   gr00t_adapter  dp_adapter   M6;  act_adapter  lerobot_vla_adapter  usvla_adapter (external families)
 ├── ros2_ws/src/                    ROS 2 packages (colcon build from ros2_ws/)
 │   ├── us_intent_msgs/             ament_cmake; msg/ModeEvent SessionInfo ActionChunk FilterEvent
 │   ├── us_intent_scheduler/        ament_python; entry point scheduler_node      M5

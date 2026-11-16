@@ -1,0 +1,15 @@
+arm_id: "ACT-5"
+family: act               # LeRobot ACT (Zhao et al., RSS 2023); external comparison family
+inputs: [bmode, camera, mode_embedding]   # no bmode_history: ACT takes one observation step
+intent_aware: true
+uses_whenhead: false
+seeds: 3
+checkpoint: null          # ACT is trained from scratch, like DP
+pretrained_backbone: null # null = ResNet-18 from scratch (same as DP); "ResNet18_Weights.IMAGENET1K_V1" = LeRobot default
+schedule:                 # shared by every arm (SPEC 10); null until the GPU budget is known
+  steps: null
+  batch_size: null
+  lr: null
+sampler_controls:         # ACT inference is deterministic (zero VAE latent): one setting only
+  deterministic_noise: [true]
+  integration_steps: [null]

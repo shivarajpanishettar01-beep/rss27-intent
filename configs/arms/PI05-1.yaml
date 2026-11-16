@@ -1,0 +1,16 @@
+arm_id: "PI05-1"
+family: pi05              # LeRobot pi0.5 (Physical Intelligence, open weights); external comparison family
+inputs: [bmode, camera]   # same observation set as A1 / DP-1; intent-blind
+intent_aware: false
+uses_whenhead: false
+seeds: 3
+checkpoint: "lerobot/pi05_base"      # released base checkpoint (id from lerobot 0.6.1 source)
+rename_map: null          # REQUIRED: our keys -> the checkpoint's image keys; read its config.json at the lab
+lerobot_overrides: {}     # extra --key=value for lerobot-train, e.g. {policy.empty_cameras: 1}
+schedule:                 # shared by every arm (SPEC 10); null until the GPU budget is known
+  steps: null
+  batch_size: null
+  lr: null
+sampler_controls:
+  deterministic_noise: [true, false]
+  integration_steps: [4, 16]

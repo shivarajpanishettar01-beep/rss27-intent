@@ -9,7 +9,7 @@ This document defines what every module must compute. Section numbers in bracket
 - Observation `o_t = (u_t, c_t, q_t)`: B-mode frame, probe-camera image (if present), robot state. Wrench `w_t` is logged and used by the controller and the when-head features.
 - Action chunk `a_{t:t+H}`: future probe displacements over `H` seconds in the `tool` frame: tangential (x, y), orientation (rx, ry, rz). The probe axis z is owned by the force controller.
 - Contact command `m̂_t ∈ {HOLD, SWEEP, LIFT, RECONTACT}`, output by the policy (or the when-head commit rule).
-- Scheduler mode `m_t`: the protocol's command. Reaches the policy only in intent-aware arms (A5, DP-5) and baseline B6.
+- Scheduler mode `m_t`: the protocol's command. Reaches the policy only in intent-aware arms (A5, DP-5, ACT-5) and baseline B6.
 - Hold duration `D`: from hold start to the operator's key press (reaction time included). Cue time and key time are logged separately.
 - Elapsed hold time `e`.
 
@@ -140,6 +140,10 @@ Every baseline implements `predict(history) -> chunk` with the same interface as
   - A7: A2 + when-head (Sec. 9), with proprioception for `e`.
   - Language-mode check: swap the instruction at test time and measure the change in predicted actions; report the arm as uninformative if the change is below the seed noise.
 - **Diffusion Policy** via LeRobot: DP-1 (as A1) and DP-5 (as A5).
+- **External comparison families** (published policies, same data, splits, targets and seeds; reports/BASELINES.md):
+  - ACT via LeRobot: ACT-1 (as A1) and ACT-5 (A1 + mode embedding as ACT's environment-state token; ACT takes one observation step, so no history). Trained in our loop with the DP schedule; inference is deterministic (zero VAE latent).
+  - USVLA-1 (US-VLA, ultrasound-specific; intent-blind; A1 inputs + TCP pose, which its absolute-pose actions need): its own `pi05_ur_usfm_fusion` config and policy server, run in its own environment by `scripts/usvla_run.py`; training copy built in two steps (our npz export, then LeRobot v2.1 with the commit it pins), each with an action-stream check. Pose-only output, executed as SWEEP.
+  - SmolVLA-1 and PI05-1 (as A1, intent-blind): fine-tuned from the released base checkpoints with `lerobot-train` on a LeRobot v3.0 training copy whose per-frame action is the GR00T arm's (tool step + next-mode one-hot); passthrough checked through LeRobot's own loader. `rename_map` comes from the checkpoint's config.json at the lab (no default).
 - Shared: same data, schedule and number of updates for every arm; ≥5 seeds for arms testing H2; seeds and git hash logged.
 - Sampler controls at inference: stochastic vs deterministic initial noise; 4 vs 16 integration/denoising steps.
 - Inference adapter: `predict(history, mode=None) -> (chunk, m̂)`. `mode` is accepted only by intent-aware arms and **asserted None** for intent-blind arms.
@@ -160,7 +164,7 @@ Every baseline implements `predict(history) -> chunk` with the same interface as
 - `us_intent_scheduler`: samples station count/order and `D` per hold from the configured distribution (per session block: uniform or shifted-exp); plays an audio cue at hold end; publishes `/protocol/mode_cue`; logs cue times. Deterministic given a seed (the seed is logged).
 - `us_intent_teleop`: keyboard teleop over preset stations. A key press publishes `/protocol/mode_key` (mode + timestamp); the robot moves only after the key press.
 - `us_intent_recorder`: rosbag2 (MCAP) recording profile for every topic in `docs/INTERFACES.md`, plus a converter from bag to LeRobot v3.0 that keeps cue/key/mode/station metadata, stores B-mode losslessly, and verifies timestamps are monotonic and on one clock.
-- `us_intent_policy_server`: loads an arm checkpoint and runs inference at the policy rate. Enforces intent gating per arm (scheduler mode is wired only for A5/DP-5/B6). Publishes the chunk and `m̂`; logs every output.
+- `us_intent_policy_server`: loads an arm checkpoint and runs inference at the policy rate. Enforces intent gating per arm (scheduler mode is wired only for A5/DP-5/ACT-5/B6). Publishes the chunk and `m̂`; logs every output.
 - `us_intent_control` (Stage 2): hybrid force/position control in the `tool` frame (force along z with an impedance law, displacement tracking in x/y/rotation), a force set-point switched by `m̂`, and a CBF/limit filter on Cartesian velocity, acceleration, normal displacement and contact force, with intervention logging. Built on the UR ROS 2 driver; read its docs for the available controller interfaces (e.g. forward velocity / Cartesian controllers) and choose one. Developed and tested on mock hardware and URSim first. **All of `docs/SAFETY.md` applies.**
 
 ---
