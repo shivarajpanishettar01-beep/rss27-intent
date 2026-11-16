@@ -271,7 +271,8 @@ def load_policy(arm_id: str, checkpoint: Any, deterministic_noise: bool = True,
                 integration_steps: int | None = None) -> Policy:
     """Load a trained arm. DP / ACT: ``model.pt`` written by scripts/run_train_arm.py. GR00T and
     SmolVLA / pi0.5: a checkpoint directory under the run's output dir, below
-    ``usintent_spec.json``."""
+    ``usintent_spec.json``. US-VLA: ``{"run_dir": ..., "server": "host:port"}`` of a running
+    ``usvla_run.py serve`` for that run (its metadata is checked against run.json)."""
     import json
     from pathlib import Path
 
@@ -288,6 +289,17 @@ def load_policy(arm_id: str, checkpoint: Any, deterministic_noise: bool = True,
         spec = Gr00tArmSpec(d["arm_id"], d["n_steps"], tuple(d["video_delta"]), d["use_camera"],
                             tuple((str(a), int(b)) for a, b in d["state_keys"]), d["language_mode"])
         return GR00TPolicy(arm_id, spec, str(ck), deterministic_noise=deterministic_noise,
+                           integration_steps=integration_steps)
+    if arm["family"] == "usvla":
+        from usintent.policies.usvla_adapter import USVLAArmSpec, USVLAPolicy
+
+        run_dir = Path(checkpoint["run_dir"])
+        run = json.loads((run_dir / "run.json").read_text())
+        host, port = str(checkpoint["server"]).rsplit(":", 1)
+        return USVLAPolicy(USVLAArmSpec(**json.loads((run_dir / "usintent_spec.json").read_text())),
+                           host, int(port),
+                           expected={"arm_id": run["arm"], "seed": run["seed"], "run": str(run_dir)},
+                           seed=int(run["seed"]), deterministic_noise=deterministic_noise,
                            integration_steps=integration_steps)
     if arm["family"] in ("smolvla", "pi05"):
         from usintent.config import require

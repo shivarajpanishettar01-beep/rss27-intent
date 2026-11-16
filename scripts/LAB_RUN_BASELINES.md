@@ -1,7 +1,7 @@
 # LAB_RUN_BASELINES — external comparison families (lab GPU)
 
-Arms: ACT-1, ACT-5 (LeRobot ACT, trained in our loop like DP) and SmolVLA-1, PI05-1 (released
-LeRobot base checkpoints fine-tuned with `lerobot-train`). Design and decisions:
+Arms: ACT-1, ACT-5 (LeRobot ACT, trained in our loop like DP), SmolVLA-1, PI05-1 (released
+LeRobot base checkpoints fine-tuned with `lerobot-train`) and USVLA-1 (US-VLA, its own code and env). Design and decisions:
 `reports/BASELINES.md`. Same data, splits, chunk target and seeds as the GR00T and DP arms.
 
 ## 0. Decisions needed first
@@ -52,6 +52,35 @@ runs the passthrough through LeRobot's own loader (must print `max_err` < 1e-5,
 `lerobot_overrides` and confirm (a) the loss falls, (b) `lerobot-train` printed no
 "missing image key" warning, (c) `python -c "from usintent.policies.evaluate import load_policy;
 p = load_policy('SmolVLA-1', '<checkpoint dir>', integration_steps=4)"` loads. Remove the override.
+
+## 3b. US-VLA arm (its own environment)
+Once:
+```bash
+git clone https://github.com/VMVLab/US-VLA && cd US-VLA && git checkout dde576a   # = configs/arms/USVLA-1.yaml usvla_commit
+GIT_LFS_SKIP_SMUDGE=1 uv sync
+# USFM weights -> ./checkpoints/usfm/USFM_latest.pth (their README, "USFM Pretrained Weights")
+pip install --no-deps ./packages/openpi-client && pip install msgpack websockets dm-tree   # into OUR env (client)
+```
+Per seed (from our repo, our env):
+```bash
+for s in 0 1 2; do
+  python scripts/run_train_arm.py --arm USVLA-1 --seed $s --train $USINTENT_DATA/cued/<train> \
+      --usvla-root <US-VLA> --launch
+done
+```
+This writes the npz export + decode passthrough (must print `max_err` < 1e-5), `run.json`, then in
+`<US-VLA>` runs `uv run python <repo>/scripts/usvla_run.py build-dataset` (LeRobot v2.1 at
+`$HF_LEROBOT_HOME/usintent/USVLA-1_<hash>`, read back as openpi does: must print `max_err` 0,
+`mismatches` 0) and `... train` (norm stats + their trainer; checkpoints under
+`results/usvla/train/USVLA-1/seed<k>/openpi_checkpoints`).
+**First run only:** seed 0 with `schedule.steps` = 200 first; confirm the loss falls and
+`norm stats ->` printed a path, then the real budget.
+
+Evaluation, one run at a time (the server checks it serves the run being scored):
+```bash
+cd <US-VLA> && uv run python <repo>/scripts/usvla_run.py serve --run-json <run dir>/run.json --port 8000 &
+python scripts/run_offline_eval.py --test ... --runs <run dir> --usvla-server localhost:8000
+```
 
 ## 4. Offline evaluation
 ```bash

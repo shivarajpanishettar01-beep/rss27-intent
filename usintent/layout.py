@@ -30,7 +30,7 @@ SUBPACKAGES = ["theory", "sim", "data", "metrics", "baselines", "leakage", "inte
                "whenhead", "stats", "policies", "protocol", "control", "closedloop"]
 ROS_PACKAGES = ["us_intent_msgs", "us_intent_scheduler", "us_intent_teleop", "us_intent_recorder",
                 "us_intent_policy_server", "us_intent_control"]
-ARMS = ["A1", "A2", "A3", "A5", "A6", "A7", "DP-1", "DP-5", "ACT-1", "ACT-5", "SmolVLA-1", "PI05-1"]
+ARMS = ["A1", "A2", "A3", "A5", "A6", "A7", "DP-1", "DP-5", "ACT-1", "ACT-5", "SmolVLA-1", "PI05-1", "USVLA-1"]
 SAFETY_KEYS = ["max_contact_force_n", "max_tcp_speed_mps", "max_tcp_accel_mps2",
                "max_normal_displacement_m", "workspace_box_base_m", "max_input_age_s",
                "watchdog_period_s"]

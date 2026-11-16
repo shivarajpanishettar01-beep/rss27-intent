@@ -142,6 +142,7 @@ Every baseline implements `predict(history) -> chunk` with the same interface as
 - **Diffusion Policy** via LeRobot: DP-1 (as A1) and DP-5 (as A5).
 - **External comparison families** (published policies, same data, splits, targets and seeds; reports/BASELINES.md):
   - ACT via LeRobot: ACT-1 (as A1) and ACT-5 (A1 + mode embedding as ACT's environment-state token; ACT takes one observation step, so no history). Trained in our loop with the DP schedule; inference is deterministic (zero VAE latent).
+  - USVLA-1 (US-VLA, ultrasound-specific; intent-blind; A1 inputs + TCP pose, which its absolute-pose actions need): its own `pi05_ur_usfm_fusion` config and policy server, run in its own environment by `scripts/usvla_run.py`; training copy built in two steps (our npz export, then LeRobot v2.1 with the commit it pins), each with an action-stream check. Pose-only output, executed as SWEEP.
   - SmolVLA-1 and PI05-1 (as A1, intent-blind): fine-tuned from the released base checkpoints with `lerobot-train` on a LeRobot v3.0 training copy whose per-frame action is the GR00T arm's (tool step + next-mode one-hot); passthrough checked through LeRobot's own loader. `rename_map` comes from the checkpoint's config.json at the lab (no default).
 - Shared: same data, schedule and number of updates for every arm; ≥5 seeds for arms testing H2; seeds and git hash logged.
 - Sampler controls at inference: stochastic vs deterministic initial noise; 4 vs 16 integration/denoising steps.
