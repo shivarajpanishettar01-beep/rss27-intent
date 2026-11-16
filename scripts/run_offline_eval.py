@@ -95,6 +95,11 @@ def main() -> None:
             if not ckpts:
                 raise SystemExit(f"{run_dir}: no GR00T checkpoint-* directory")
             ckpt = ckpts[-1]
+        elif run.get("family") in ("smolvla", "pi05"):
+            from usintent.policies.lerobot_vla_adapter import checkpoint_dir, decode_passthrough
+
+            decode_passthrough(te_eps, n)                   # VLA action path, rule 4
+            ckpt = checkpoint_dir(run_dir)
         for det in cfg["sampler_controls"]["deterministic_noise"]:
             for steps in cfg["sampler_controls"]["integration_steps"]:
                 pol = load_policy(run["arm"], ckpt, det, steps)

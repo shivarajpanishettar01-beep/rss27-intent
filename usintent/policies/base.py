@@ -7,7 +7,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-INTENT_AWARE_ARMS = frozenset({"A5", "DP-5", "B6"})
+INTENT_AWARE_ARMS = frozenset({"A5", "DP-5", "ACT-5", "B6"})
 
 
 class Policy(ABC):
